@@ -75,7 +75,7 @@ export default function TradingTerminalPage() {
       ]);
       setOhlcv(ohlcvData.data || []);
       setIndicators(indData.indicators || null);
-      setPortfolio(portfolioData.USER.find(p => p.ticker === ticker) || null);
+      setPortfolio(portfolioData.summary.USER.find(p => p.ticker === ticker) || null);
     } catch (err) {
       console.error(err);
     } finally {
