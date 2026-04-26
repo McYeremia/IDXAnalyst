@@ -1,56 +1,93 @@
-import os
-import json
-from datetime import date, timedelta
-
-import pandas as pd
 import yfinance as yf
+import pandas as pd
 from sqlalchemy.orm import Session
-
+from datetime import datetime, timedelta
 import models
 
-def load_idx80() -> list[dict]:
-    path = os.path.join(os.path.dirname(__file__), "../data/idx80.json")
-    with open(path, encoding="utf-8") as f:
-        return json.load(f)
-
-def seed_stocks(db: Session) -> None:
-    existing = {s.ticker for s in db.query(models.Stock).all()}
-    new = [
-        models.Stock(ticker=s["ticker"], name=s["name"], sector=s["sector"], market_cap_cat="large")
-        for s in load_idx80() if s["ticker"] not in existing
-    ]
-    if new:
-        db.add_all(new)
-        db.commit()
-
-def fetch_ohlcv(ticker: str, days: int = 365 * 5) -> pd.DataFrame:
-    end = date.today()
-    start = end - timedelta(days=days)
-    df = yf.download(f"{ticker}.JK", start=start, end=end, progress=False, auto_adjust=True)
-    if isinstance(df.columns, pd.MultiIndex):
-        df.columns = df.columns.get_level_values(0)
-    return df
+def fetch_ohlcv(ticker: str, period: str = "5y") -> pd.DataFrame:
+    """
+    Fetch historical data from Yahoo Finance.
+    """
+    # Penanganan ticker: Jika tidak diawali ^ (index), tambahkan .JK untuk saham Indonesia
+    symbol = ticker if ticker.startswith("^") else f"{ticker}.JK"
+    
+    try:
+        df = yf.download(symbol, period=period, interval="1d", progress=False)
+        return df
+    except Exception as e:
+        print(f"Error fetching {symbol}: {e}")
+        return pd.DataFrame()
 
 def save_ohlcv(db: Session, stock: models.Stock, df: pd.DataFrame) -> int:
-    existing = {
-        r.date for r in
-        db.query(models.OHLCVDaily.date).filter(models.OHLCVDaily.stock_id == stock.id)
-    }
-    rows = []
-    for ts, row in df.iterrows():
-        d = ts.date() if hasattr(ts, "date") else ts
-        if d in existing:
+    """
+    Save OHLCV data to database, avoiding duplicates.
+    """
+    if df.empty:
+        return 0
+
+    count = 0
+    for index, row in df.iterrows():
+        # yfinance terbaru kadang mengembalikan MultiIndex atau Series
+        # Kita pastikan mengambil nilai float murni
+        try:
+            # Handle possible Series or Single Value
+            def get_val(val):
+                if isinstance(val, pd.Series):
+                    return float(val.iloc[0])
+                return float(val)
+
+            d = index.date() if hasattr(index, 'date') else index
+            
+            # Cek duplikat
+            exists = db.query(models.OHLCVDaily).filter(
+                models.OHLCVDaily.stock_id == stock.id,
+                models.OHLCVDaily.date == d
+            ).first()
+            
+            if not exists:
+                new_row = models.OHLCVDaily(
+                    stock_id=stock.id,
+                    date=d,
+                    open=get_val(row["Open"]),
+                    high=get_val(row["High"]),
+                    low=get_val(row["Low"]),
+                    close=get_val(row["Close"]),
+                    volume=int(get_val(row["Volume"])),
+                    adj_close=get_val(row["Adj Close"]) if "Adj Close" in row else get_val(row["Close"])
+                )
+                db.add(new_row)
+                count += 1
+        except Exception as e:
             continue
-        rows.append(models.OHLCVDaily(
-            stock_id=stock.id, date=d,
-            open=float(row.get("Open") or 0),
-            high=float(row.get("High") or 0),
-            low=float(row.get("Low") or 0),
-            close=float(row.get("Close") or 0),
-            volume=int(row.get("Volume") or 0),
-            adj_close=float(row.get("Adj Close") or row.get("Close") or 0),
-        ))
-    if rows:
-        db.bulk_save_objects(rows)
-        db.commit()
-    return len(rows)
+            
+    db.commit()
+    # Update last_updated timestamp di tabel Stock
+    stock.last_updated = datetime.now()
+    db.commit()
+    
+    return count
+
+def seed_stocks(db: Session):
+    """
+    Initial seed for IDX80 if table is empty.
+    """
+    if db.query(models.Stock).count() > 0:
+        return
+
+    # Sederhanakan daftar awal, nanti akan ditambah via bulk script
+    initial_stocks = [
+        {"ticker": "BBCA", "name": "Bank Central Asia Tbk.", "sector": "Finance"},
+        {"ticker": "BBRI", "name": "Bank Rakyat Indonesia (Persero) Tbk.", "sector": "Finance"},
+        {"ticker": "TLKM", "name": "Telkom Indonesia (Persero) Tbk.", "sector": "Infrastruktur"},
+        {"ticker": "ASII", "name": "Astra International Tbk.", "sector": "Industri"},
+    ]
+    
+    for s in initial_stocks:
+        new_stock = models.Stock(
+            ticker=s["ticker"],
+            name=s["name"],
+            sector=s["sector"],
+            market_cap_cat="major"
+        )
+        db.add(new_stock)
+    db.commit()

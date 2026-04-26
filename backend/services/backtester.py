@@ -1,0 +1,142 @@
+import pandas as pd
+import numpy as np
+import ta as ta_lib
+from typing import List, Dict, Any
+from sqlalchemy.orm import Session
+import models
+import services.indicators as ind_svc
+
+def run_backtest(db: Session, stock_ticker: str, strategy_id: str, initial_capital: float = 100_000_000):
+    stock = db.query(models.Stock).filter(models.Stock.ticker == stock_ticker).first()
+    if not stock: return {"error": "Stock not found"}
+
+    df = ind_svc.get_ohlcv_df(db, stock.id)
+    if df.empty or len(df) < 200: return {"error": "Insufficient data"}
+
+    close = df['close']
+    high = df['high']
+    low = df['low']
+    vol = df['volume']
+    
+    # CALCULATE ALL 15 INDICATORS
+    # Trend
+    df['ma20'] = ta_lib.trend.SMAIndicator(close, window=20).sma_indicator()
+    df['ma50'] = ta_lib.trend.SMAIndicator(close, window=50).sma_indicator()
+    df['ma200'] = ta_lib.trend.SMAIndicator(close, window=200).sma_indicator()
+    df['ema12'] = ta_lib.trend.EMAIndicator(close, window=12).ema_indicator()
+    df['ema26'] = ta_lib.trend.EMAIndicator(close, window=26).ema_indicator()
+    
+    # Momentum
+    df['rsi'] = ta_lib.momentum.RSIIndicator(close).rsi()
+    stoch = ta_lib.momentum.StochasticOscillator(high, low, close)
+    df['stoch_k'] = stoch.stoch()
+    df['stoch_d'] = stoch.stoch_signal()
+    
+    macd = ta_lib.trend.MACD(close)
+    df['macd_line'] = macd.macd()
+    df['macd_sig'] = macd.macd_signal()
+    df['macd_hist'] = macd.macd_diff()
+    
+    # Volatility
+    bb = ta_lib.volatility.BollingerBands(close)
+    df['bb_low'] = bb.bollinger_lband()
+    df['bb_high'] = bb.bollinger_hband()
+    df['atr'] = ta_lib.volatility.AverageTrueRange(high, low, close).average_true_range()
+    
+    # Volume
+    df['vol_ma20'] = ta_lib.trend.SMAIndicator(vol, window=20).sma_indicator()
+    
+    cash = initial_capital
+    position = 0
+    entry_price = 0
+    trades = []
+    equity_curve = []
+
+    for i in range(50, len(df)):
+        date = df.index[i]
+        curr = df.iloc[i]
+        prev = df.iloc[i-1]
+        price = curr['close']
+        
+        buy_signal = False
+        sell_signal = False
+
+        # --- ADVANCED STRATEGY LOGIC ---
+        
+        if strategy_id == "triple-confirmation":
+            buy_signal = curr['rsi'] < 45 and curr['macd_hist'] > 0 and price > curr['ma20']
+            sell_signal = curr['rsi'] > 70 or price < curr['ma20']
+
+        elif strategy_id == "volatility-sniper":
+            buy_signal = price < curr['bb_low'] and curr['stoch_k'] < 20
+            sell_signal = price > curr['bb_high']
+
+        elif strategy_id == "institutional-trend":
+            buy_signal = price > curr['ma200'] and curr['ema12'] > curr['ema26'] and prev['ema12'] <= prev['ema26']
+            sell_signal = curr['ema12'] < curr['ema26']
+
+        elif strategy_id == "exhaustion-play":
+            buy_signal = curr['rsi'] < 25 and price < curr['bb_low'] and curr['stoch_k'] < 15
+            sell_signal = curr['rsi'] > 60
+
+        elif strategy_id == "trend-accelerator":
+            buy_signal = curr['macd_hist'] > 0 and price > curr['ma50'] and curr['volume'] > curr['vol_ma20']
+            sell_signal = curr['macd_hist'] < 0
+
+        elif strategy_id == "pure-momentum":
+            buy_signal = curr['ema12'] > curr['ema26'] and curr['macd_line'] > curr['macd_sig']
+            sell_signal = curr['macd_line'] < curr['macd_sig']
+
+        elif strategy_id == "defensive-bull":
+            buy_signal = curr['ma50'] > curr['ma200'] and curr['rsi'] > 50
+            sell_signal = curr['ma50'] < curr['ma200']
+
+        elif strategy_id == "stoch-rsi-hybrid":
+            buy_signal = curr['stoch_k'] > 20 and prev['stoch_k'] <= 20 and curr['rsi'] > 30
+            sell_signal = curr['stoch_k'] > 80 or curr['rsi'] > 70
+            
+        # Default simple fallbacks for old IDs
+        elif strategy_id == "rsi-reversion":
+            buy_signal = curr['rsi'] < 30
+            sell_signal = curr['rsi'] > 70
+        elif strategy_id == "ma-cross":
+            buy_signal = curr['ma20'] > curr['ma50'] and prev['ma20'] <= prev['ma50']
+            sell_signal = curr['ma20'] < curr['ma50']
+
+        # EXECUTION ENGINE
+        if position == 0 and buy_signal:
+            shares = (cash // (price * 100)) * 100
+            if shares > 0:
+                entry_price = price
+                position = shares
+                cash -= (position * entry_price)
+                trades.append({"date": str(date), "type": "BUY", "price": float(entry_price)})
+        
+        elif position > 0 and (sell_signal or (price - entry_price)/entry_price < -0.07): # Auto SL 7%
+            cash += (position * price)
+            trades.append({
+                "date": str(date), "type": "SELL", "price": float(price),
+                "pnl": float((price - entry_price) * position),
+                "pnl_pct": float(((price - entry_price) / entry_price) * 100)
+            })
+            position = 0
+
+        equity_curve.append({"date": str(date), "value": float(cash + (position * price))})
+
+    closed_trades = [t for t in trades if "pnl" in t]
+    if not closed_trades: return {"error": "No trades executed for this strategy"}
+    
+    wins = [t for t in closed_trades if t['pnl'] > 0]
+    win_rate = (len(wins) / len(closed_trades)) * 100
+    total_return = ((equity_curve[-1]['value'] - initial_capital) / initial_capital) * 100
+
+    return {
+        "strategy_id": strategy_id,
+        "metrics": {
+            "win_rate": round(win_rate, 2),
+            "total_return_pct": round(total_return, 2),
+            "total_trades": len(closed_trades),
+            "wins": len(wins),
+            "losses": len(closed_trades) - len(wins)
+        }
+    }

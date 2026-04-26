@@ -3,6 +3,7 @@ from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
+import yfinance as yf
 
 import models
 import services.data_fetcher as fetcher
@@ -32,6 +33,44 @@ def list_stocks(db: Session = Depends(get_db)):
         })
     return result
 
+@router.post("/{ticker}")
+def add_custom_stock(ticker: str, db: Session = Depends(get_db)):
+    ticker = ticker.upper()
+    # Cek apakah sudah ada
+    existing = db.query(models.Stock).filter(models.Stock.ticker == ticker).first()
+    if existing:
+        return {"status": "exists", "ticker": ticker}
+    
+    # Ambil info dari yfinance
+    try:
+        yf_ticker = yf.Ticker(f"{ticker}.JK")
+        info = yf_ticker.info
+        
+        # Jika tidak ketemu dengan .JK, coba tanpa suffix (untuk US stocks)
+        if not info or 'longName' not in info:
+            yf_ticker = yf.Ticker(ticker)
+            info = yf_ticker.info
+            
+        if not info or 'longName' not in info:
+            raise HTTPException(status_code=404, detail="Stock not found on Yahoo Finance")
+
+        new_stock = models.Stock(
+            ticker=ticker,
+            name=info.get('longName', ticker),
+            sector=info.get('sector', 'Unknown'),
+            market_cap_cat="custom"
+        )
+        db.add(new_stock)
+        db.commit()
+        db.refresh(new_stock)
+        
+        # Trigger refresh data awal (5 tahun)
+        df = fetcher.fetch_ohlcv(ticker)
+        fetcher.save_ohlcv(db, new_stock, df)
+        
+        return {"status": "added", "ticker": ticker, "name": new_stock.name}
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
 
 @router.get("/{ticker}/ohlcv")
 def get_ohlcv(
@@ -70,7 +109,6 @@ def get_indicators(ticker: str, db: Session = Depends(get_db)):
     return {"ticker": stock.ticker, "indicators": ind_svc.calculate_indicators(db, stock)}
 
 
-# /refresh harus di atas /{ticker}/refresh agar tidak bentrok routing
 @router.post("/refresh")
 def refresh_all(db: Session = Depends(get_db)):
     fetcher.seed_stocks(db)

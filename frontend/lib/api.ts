@@ -26,8 +26,12 @@ export interface PortfolioItem {
   realized_pnl: number;
 }
 
+export interface MultiPortfolio {
+  MANUAL: PortfolioItem[];
+  AUTO: PortfolioItem[];
+}
+
 export const api = {
-  // Stocks
   async getStocks(): Promise<Stock[]> {
     const res = await fetch(`${API_BASE_URL}/stocks`);
     return res.json();
@@ -44,16 +48,13 @@ export const api = {
     return res.json();
   },
 
-  // Trades & Portfolio
-  async getPortfolio(): Promise<PortfolioItem[]> {
-    // Kita akan buat endpoint ini di backend nanti, atau sementara bisa pakai mcp_server logic
-    // Untuk sekarang kita asumsikan backend punya endpoint /trades/portfolio
+  async getPortfolio(): Promise<MultiPortfolio> {
     const res = await fetch(`${API_BASE_URL}/trades/portfolio`);
-    if (!res.ok) return [];
+    if (!res.ok) return { MANUAL: [], AUTO: [] };
     return res.json();
   },
 
-  async executeTrade(ticker: string, action: 'BUY' | 'SELL', quantity: number, price?: number, notes?: string) {
+  async executeTrade(ticker: string, action: 'BUY' | 'SELL', quantity: number, price?: number, tradeType: 'MANUAL' | 'AUTO' = 'MANUAL', notes?: string) {
     const res = await fetch(`${API_BASE_URL}/trades`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -62,7 +63,7 @@ export const api = {
         action,
         quantity,
         price,
-        trade_type: 'MANUAL',
+        trade_type: tradeType,
         notes
       }),
     });
@@ -72,6 +73,16 @@ export const api = {
   async refreshData(ticker?: string) {
     const url = ticker ? `${API_BASE_URL}/stocks/${ticker}/refresh` : `${API_BASE_URL}/stocks/refresh`;
     const res = await fetch(url, { method: 'POST' });
+    return res.json();
+  },
+
+  async runBacktest(ticker: string, strategyId: string) {
+    const res = await fetch(`${API_BASE_URL}/backtest/run/${ticker}/${strategyId}`);
+    return res.json();
+  },
+
+  async addStock(ticker: string) {
+    const res = await fetch(`${API_BASE_URL}/stocks/${ticker}`, { method: 'POST' });
     return res.json();
   }
 };

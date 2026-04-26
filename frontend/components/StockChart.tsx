@@ -14,36 +14,74 @@ interface OHLCVRow {
 
 interface Props {
   data: OHLCVRow[];
-  indicators: Record<string, number | null>;
-  showMA20: boolean;
-  showMA50: boolean;
-  showEMA12: boolean;
+  indicators?: Record<string, number | null>;
+  showMA20?: boolean;
+  showMA50?: boolean;
+  showEMA12?: boolean;
+  height?: number;
+  transparent?: boolean;
 }
 
-export default function StockChart({ data, indicators, showMA20, showMA50, showEMA12 }: Props) {
+export default function StockChart({ 
+  data, 
+  indicators = {}, 
+  showMA20 = false, 
+  showMA50 = false, 
+  showEMA12 = false,
+  height = 420,
+  transparent = false
+}: Props) {
   const chartRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     if (!chartRef.current || data.length === 0) return;
 
     const chart = createChart(chartRef.current, {
-      layout: { background: { type: ColorType.Solid, color: "#0f172a" }, textColor: "#94a3b8" },
-      grid: { vertLines: { color: "#1e293b" }, horzLines: { color: "#1e293b" } },
+      layout: { 
+        background: { 
+          type: ColorType.Solid, 
+          color: transparent ? "transparent" : "#0a0a0a" 
+        }, 
+        textColor: "#64748b" 
+      },
+      grid: { 
+        vertLines: { color: "rgba(255, 255, 255, 0.03)" }, 
+        horzLines: { color: "rgba(255, 255, 255, 0.03)" } 
+      },
       width: chartRef.current.clientWidth,
-      height: 420,
-      timeScale: { borderColor: "#334155" },
-      rightPriceScale: { borderColor: "#334155" },
+      height: height,
+      timeScale: { 
+        borderColor: "rgba(255, 255, 255, 0.1)",
+        barSpacing: 10,
+      },
+      rightPriceScale: { 
+        borderColor: "rgba(255, 255, 255, 0.1)",
+      },
+      handleScale: {
+        mouseWheel: true,
+        pinch: true,
+      },
+      handleScroll: {
+        mouseWheel: true,
+        pressedMouseMove: true,
+      },
     });
 
     const candles = chart.addSeries(CandlestickSeries, {
-      upColor: "#22c55e", downColor: "#ef4444",
-      borderUpColor: "#22c55e", borderDownColor: "#ef4444",
-      wickUpColor: "#22c55e", wickDownColor: "#ef4444",
+      upColor: "#22c55e", 
+      downColor: "#ef4444",
+      borderUpColor: "#22c55e", 
+      borderDownColor: "#ef4444",
+      wickUpColor: "#22c55e", 
+      wickDownColor: "#ef4444",
     });
 
     const candleData = data.map((r) => ({
       time: r.date as string,
-      open: r.open, high: r.high, low: r.low, close: r.close,
+      open: r.open, 
+      high: r.high, 
+      low: r.low, 
+      close: r.close,
     }));
     candles.setData(candleData);
 
@@ -93,7 +131,7 @@ export default function StockChart({ data, indicators, showMA20, showMA50, showE
       window.removeEventListener("resize", handleResize);
       chart.remove();
     };
-  }, [data, showMA20, showMA50, showEMA12]);
+  }, [data, showMA20, showMA50, showEMA12, height, transparent]);
 
   return <div ref={chartRef} className="w-full" />;
 }

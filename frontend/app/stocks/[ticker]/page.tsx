@@ -67,7 +67,8 @@ export default function TradingTerminalPage() {
       ]);
       setOhlcv(ohlcvData.data || []);
       setIndicators(indData.indicators || null);
-      setPortfolio(portfolioData.find(p => p.ticker === ticker) || null);
+      // Cari di portofolio MANUAL (User Strategy)
+      setPortfolio(portfolioData.MANUAL.find(p => p.ticker === ticker) || null);
     } catch (err) {
       console.error(err);
     } finally {
@@ -98,7 +99,7 @@ export default function TradingTerminalPage() {
   const filteredStocks = stocks.filter(s => s.ticker.toLowerCase().includes(searchTerm.toLowerCase()));
 
   return (
-    <div className="flex h-screen bg-[#050505] text-white overflow-hidden">
+    <div className="flex h-screen bg-[#050505] text-white overflow-hidden pt-16">
       {/* Sidebar: Market Watch */}
       <aside className="w-64 border-r border-white/10 flex flex-col bg-[#0a0a0a] shrink-0">
         <div className="p-4 border-b border-white/10">
