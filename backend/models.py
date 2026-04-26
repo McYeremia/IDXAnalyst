@@ -1,5 +1,5 @@
 import datetime
-from sqlalchemy import Column, Integer, BigInteger, String, Float, Date, DateTime, ForeignKey, UniqueConstraint, func
+from sqlalchemy import Column, Integer, BigInteger, String, Float, Date, DateTime, ForeignKey, UniqueConstraint, func, JSON
 from sqlalchemy.orm import relationship
 from database import Base
 
@@ -15,6 +15,7 @@ class Stock(Base):
 
     ohlcv = relationship("OHLCVDaily", back_populates="stock", cascade="all, delete-orphan")
     indicators = relationship("IndicatorCache", back_populates="stock", cascade="all, delete-orphan")
+    trades = relationship("TradeLog", back_populates="stock", cascade="all, delete-orphan")
 
 class OHLCVDaily(Base):
     __tablename__ = "ohlcv_daily"
@@ -44,3 +45,56 @@ class IndicatorCache(Base):
     calculated_at = Column(DateTime, server_default=func.now())
 
     stock = relationship("Stock", back_populates="indicators")
+
+class Strategy(Base):
+    __tablename__ = "strategies"
+
+    id = Column(Integer, primary_key=True, index=True)
+    name = Column(String(100), nullable=False)
+    conditions = Column(JSON, nullable=False)  # Entry/Exit conditions
+    parameters = Column(JSON)                 # SL, TP, Capital, etc.
+    created_at = Column(DateTime, server_default=func.now())
+
+    backtests = relationship("BacktestRun", back_populates="strategy")
+
+class BacktestRun(Base):
+    __tablename__ = "backtest_runs"
+
+    id = Column(Integer, primary_key=True, index=True)
+    strategy_id = Column(Integer, ForeignKey("strategies.id"), nullable=False)
+    stock_id = Column(Integer, ForeignKey("stocks.id"), nullable=False)
+    date_from = Column(Date, nullable=False)
+    date_to = Column(Date, nullable=False)
+    
+    # Metrics
+    total_trades = Column(Integer)
+    win_rate = Column(Float)
+    profit_factor = Column(Float)
+    max_drawdown = Column(Float)
+    sharpe_ratio = Column(Float)
+    total_return = Column(Float)
+    
+    # Detailed Data (JSON)
+    equity_curve = Column(JSON)    # Array of daily portfolio values
+    trades_detail = Column(JSON)   # List of all trades in this run
+    created_at = Column(DateTime, server_default=func.now())
+
+    strategy = relationship("Strategy", back_populates="backtests")
+    trades = relationship("TradeLog", back_populates="backtest_run")
+
+class TradeLog(Base):
+    __tablename__ = "trade_logs"
+
+    id = Column(Integer, primary_key=True, index=True)
+    stock_id = Column(Integer, ForeignKey("stocks.id"), nullable=False)
+    action = Column(String(10), nullable=False)      # BUY / SELL
+    date = Column(Date, nullable=False, index=True)
+    price = Column(Float, nullable=False)
+    quantity = Column(Integer, nullable=False)       # In Lots (100 shares)
+    trade_type = Column(String(20), nullable=False)  # MANUAL / AUTO
+    backtest_run_id = Column(Integer, ForeignKey("backtest_runs.id"), nullable=True)
+    notes = Column(String(255))
+    created_at = Column(DateTime, server_default=func.now())
+
+    stock = relationship("Stock", back_populates="trades")
+    backtest_run = relationship("BacktestRun", back_populates="trades")
