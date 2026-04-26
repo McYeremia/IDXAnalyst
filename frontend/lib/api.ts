@@ -1,4 +1,4 @@
-const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
+const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://127.0.0.1:8000';
 
 export interface Stock {
   ticker: string;
@@ -6,6 +6,9 @@ export interface Stock {
   sector: string;
   last_price: number | null;
   last_date: string | null;
+  pe_ratio: number | null;
+  pbv_ratio: number | null;
+  dividend_yield: number | null;
 }
 
 export interface OHLCV {
@@ -21,14 +24,28 @@ export interface PortfolioItem {
   ticker: string;
   shares: number;
   avg_buy_price: number;
+  cost_basis: number; // New field
   current_price: number;
   unrealized_pnl: number;
   realized_pnl: number;
 }
 
-export interface MultiPortfolio {
-  MANUAL: PortfolioItem[];
-  AUTO: PortfolioItem[];
+export interface EquityPoint {
+  date: string;
+  value: number;
+}
+
+export interface MultiPortfolioResponse {
+  summary: {
+    USER: PortfolioItem[];
+    GEMINI: PortfolioItem[];
+    CLAUDE: PortfolioItem[];
+  };
+  history: {
+    USER: EquityPoint[];
+    GEMINI: EquityPoint[];
+    CLAUDE: EquityPoint[];
+  };
 }
 
 export const api = {
@@ -48,13 +65,13 @@ export const api = {
     return res.json();
   },
 
-  async getPortfolio(): Promise<MultiPortfolio> {
+  async getPortfolio(): Promise<MultiPortfolioResponse> {
     const res = await fetch(`${API_BASE_URL}/trades/portfolio`);
-    if (!res.ok) return { MANUAL: [], AUTO: [] };
+    if (!res.ok) return { summary: { USER: [], GEMINI: [], CLAUDE: [] }, history: { USER: [], GEMINI: [], CLAUDE: [] } };
     return res.json();
   },
 
-  async executeTrade(ticker: string, action: 'BUY' | 'SELL', quantity: number, price?: number, tradeType: 'MANUAL' | 'AUTO' = 'MANUAL', notes?: string) {
+  async executeTrade(ticker: string, action: 'BUY' | 'SELL', quantity: number, price?: number, tradeType: string = 'MANUAL', notes?: string) {
     const res = await fetch(`${API_BASE_URL}/trades`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
