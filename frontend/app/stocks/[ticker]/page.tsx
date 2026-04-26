@@ -62,8 +62,21 @@ export default function StockPage() {
   const changePct = change && prev ? (change / prev.close) * 100 : null;
 
   return (
-    <main className="min-h-screen bg-gray-950 text-gray-100 p-6">
-      <Link href="/" className="text-blue-400 text-sm hover:underline mb-4 inline-block">← Kembali</Link>
+    <main className="min-h-screen bg-gray-950 text-gray-100">
+      {/* Navbar */}
+      <nav className="border-b border-gray-800 px-6 py-3 flex items-center gap-6">
+        <Link href="/" className="text-sm font-mono font-bold text-white hover:text-blue-400 transition-colors">
+          IDXAnalyst
+        </Link>
+        <span className="text-gray-600 text-xs">|</span>
+        <Link href="/dashboard" className="text-sm text-gray-400 hover:text-gray-200 transition-colors">
+          Dashboard
+        </Link>
+        <span className="text-gray-600 text-xs">|</span>
+        <span className="text-sm text-blue-400 font-mono font-semibold">{ticker}</span>
+      </nav>
+      <div className="p-6">
+      <Link href="/dashboard" className="text-blue-400 text-sm hover:underline mb-4 inline-block">← Kembali ke Dashboard</Link>
 
       <div className="flex items-baseline gap-3 mb-1">
         <h1 className="text-3xl font-bold font-mono">{ticker}</h1>
@@ -137,6 +150,7 @@ export default function StockPage() {
           ))}
         </div>
       )}
+      </div>
     </main>
   );
 }
