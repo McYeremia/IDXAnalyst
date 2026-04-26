@@ -11,3 +11,9 @@ def run_backtest_endpoint(ticker: str, strategy_id: str, db: Session = Depends(g
     if "error" in result:
         raise HTTPException(status_code=400, detail=result["error"])
     return result
+
+@router.get("/screen/{strategy_id}")
+def screen_stocks_endpoint(strategy_id: str, db: Session = Depends(get_db)):
+    import services.watcher as watcher
+    matches = watcher.screen_by_strategy(db, strategy_id)
+    return {"strategy_id": strategy_id, "matches": matches}

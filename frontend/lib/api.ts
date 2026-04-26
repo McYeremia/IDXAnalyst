@@ -81,6 +81,11 @@ export const api = {
     return res.json();
   },
 
+  async screenStocks(strategyId: string) {
+    const res = await fetch(`${API_BASE_URL}/backtest/screen/${strategyId}`);
+    return res.json();
+  },
+
   async addStock(ticker: string) {
     const res = await fetch(`${API_BASE_URL}/stocks/${ticker}`, { method: 'POST' });
     return res.json();

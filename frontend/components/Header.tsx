@@ -14,6 +14,7 @@ export default function Header() {
     { name: 'MARKET', href: '/dashboard' },
     { name: 'PORTFOLIO', href: '/portfolio' },
     { name: 'BACKTEST', href: '/backtest' },
+    { name: 'SCREENER', href: '/screener' },
     { name: 'TRADING', href: '/stocks/BBCA' },
   ];
 
