@@ -67,6 +67,27 @@ def save_ohlcv(db: Session, stock: models.Stock, df: pd.DataFrame) -> int:
     
     return count
 
+def update_stock_fundamentals(db: Session, stock: models.Stock):
+    """
+    Fetch and update fundamental data for a stock.
+    """
+    symbol = stock.ticker if stock.ticker.startswith("^") else f"{stock.ticker}.JK"
+    try:
+        yf_ticker = yf.Ticker(symbol)
+        info = yf_ticker.info
+        
+        stock.market_cap = info.get('marketCap')
+        stock.pe_ratio = info.get('trailingPE')
+        stock.pbv_ratio = info.get('priceToBook')
+        stock.dividend_yield = info.get('dividendYield')
+        stock.forward_pe = info.get('forwardPE')
+        
+        db.commit()
+        return True
+    except Exception as e:
+        print(f"Error fundamental {stock.ticker}: {e}")
+        return False
+
 def seed_stocks(db: Session):
     """
     Initial seed for IDX80 if table is empty.

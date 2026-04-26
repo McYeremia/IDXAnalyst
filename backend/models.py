@@ -13,9 +13,31 @@ class Stock(Base):
     market_cap_cat = Column(String(10))
     last_updated = Column(DateTime)
 
+    # Fundamentals
+    market_cap = Column(BigInteger)
+    pe_ratio = Column(Float)
+    pbv_ratio = Column(Float)
+    dividend_yield = Column(Float)
+    forward_pe = Column(Float)
+
     ohlcv = relationship("OHLCVDaily", back_populates="stock", cascade="all, delete-orphan")
     indicators = relationship("IndicatorCache", back_populates="stock", cascade="all, delete-orphan")
     trades = relationship("TradeLog", back_populates="stock", cascade="all, delete-orphan")
+
+class Signal(Base):
+    __tablename__ = "signals"
+
+    id = Column(Integer, primary_key=True, index=True)
+    stock_id = Column(Integer, ForeignKey("stocks.id"), nullable=False)
+    strategy_id = Column(String(50), nullable=False)
+    type = Column(String(10), nullable=False) # BUY / SELL
+    price = Column(Float)
+    strength = Column(Float) # Score 0-100
+    description = Column(String(255))
+    created_at = Column(DateTime, server_default=func.now())
+    is_read = Column(Integer, default=0)
+
+    stock = relationship("Stock")
 
 class OHLCVDaily(Base):
     __tablename__ = "ohlcv_daily"

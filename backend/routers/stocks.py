@@ -3,6 +3,7 @@ from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
+from sqlalchemy import desc
 import yfinance as yf
 
 import models
@@ -30,6 +31,10 @@ def list_stocks(db: Session = Depends(get_db)):
             "sector": stock.sector,
             "last_price": latest.close if latest else None,
             "last_date": str(latest.date) if latest else None,
+            "market_cap": stock.market_cap,
+            "pe_ratio": stock.pe_ratio,
+            "pbv_ratio": stock.pbv_ratio,
+            "dividend_yield": stock.dividend_yield
         })
     return result
 
@@ -122,6 +127,28 @@ def refresh_all(db: Session = Depends(get_db)):
             results[stock.ticker] = {"status": "error", "error": str(e)}
     return results
 
+
+@router.get("/signals")
+def get_ai_signals(db: Session = Depends(get_db)):
+    signals = db.query(models.Signal).order_by(desc(models.Signal.created_at)).limit(20).all()
+    result = []
+    for s in signals:
+        result.append({
+            "ticker": s.stock.ticker,
+            "type": s.type,
+            "strategy": s.strategy_id,
+            "description": s.description,
+            "strength": s.strength,
+            "date": s.created_at.strftime("%Y-%m-%d %H:%M")
+        })
+    return result
+
+@router.post("/scan")
+def trigger_scan(db: Session = Depends(get_db)):
+    import services.watcher as watcher
+    print("LOG: Triggering AI Market Scan via API...")
+    count = watcher.scan_market_signals()
+    return {"status": "ok", "message": f"Scan complete. Found {count} signals."}
 
 @router.post("/{ticker}/refresh")
 def refresh_stock(ticker: str, db: Session = Depends(get_db)):
