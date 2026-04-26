@@ -1,156 +1,134 @@
-import Link from "next/link";
+'use client';
 
-const FEATURES = [
-  {
-    icon: (
-      <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
-        <path strokeLinecap="round" strokeLinejoin="round" d="M3 13.125C3 12.504 3.504 12 4.125 12h2.25c.621 0 1.125.504 1.125 1.125v6.75C7.5 20.496 6.996 21 6.375 21h-2.25A1.125 1.125 0 013 19.875v-6.75zM9.75 8.625c0-.621.504-1.125 1.125-1.125h2.25c.621 0 1.125.504 1.125 1.125v11.25c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 01-1.125-1.125V8.625zM16.5 4.125c0-.621.504-1.125 1.125-1.125h2.25C20.496 3 21 3.504 21 4.125v15.75c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 01-1.125-1.125V4.125z" />
-      </svg>
-    ),
-    title: "Candlestick Chart",
-    desc: "Visualisasi pergerakan harga OHLCV dengan overlay MA20, MA50, dan EMA12.",
-  },
-  {
-    icon: (
-      <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
-        <path strokeLinecap="round" strokeLinejoin="round" d="M9.75 3.104v5.714a2.25 2.25 0 01-.659 1.591L5 14.5M9.75 3.104c-.251.023-.501.05-.75.082m.75-.082a24.301 24.301 0 014.5 0m0 0v5.714c0 .597.237 1.17.659 1.591L19.8 15.3M14.25 3.104c.251.023.501.05.75.082M19.8 15.3l-1.57.393A9.065 9.065 0 0112 15a9.065 9.065 0 00-6.23-.693L5 14.5m14.8.8l1.402 1.402c1.232 1.232.65 3.318-1.067 3.611A48.309 48.309 0 0112 21c-2.773 0-5.491-.235-8.135-.687-1.718-.293-2.3-2.379-1.067-3.61L5 14.5" />
-      </svg>
-    ),
-    title: "16 Indikator Teknikal",
-    desc: "RSI, MACD, Bollinger Bands, Stochastic, ATR, Moving Averages, dan lebih banyak.",
-  },
-  {
-    icon: (
-      <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
-        <path strokeLinecap="round" strokeLinejoin="round" d="M3.75 12h16.5m-16.5 3.75h16.5M3.75 19.5h16.5M5.625 4.5h12.75a1.875 1.875 0 010 3.75H5.625a1.875 1.875 0 010-3.75z" />
-      </svg>
-    ),
-    title: "80 Saham IDX80",
-    desc: "Cakupan penuh IDX80 — 80 saham blue-chip Indonesia dengan filter sektor.",
-  },
-  {
-    icon: (
-      <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
-        <path strokeLinecap="round" strokeLinejoin="round" d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0l3.181 3.183a8.25 8.25 0 0013.803-3.7M4.031 9.865a8.25 8.25 0 0113.803-3.7l3.181 3.182m0-4.991v4.99" />
-      </svg>
-    ),
-    title: "Data EOD Otomatis",
-    desc: "Data harga end-of-day diperbarui via yfinance dengan satu klik refresh.",
-  },
-];
-
-const STATS = [
-  { value: "80", label: "Saham IDX80" },
-  { value: "16", label: "Indikator Teknikal" },
-  { value: "EOD", label: "Data Harian" },
-  { value: "Free", label: "Open Source" },
-];
-
-const SAMPLE_TICKERS = ["BBCA", "TLKM", "ASII", "BMRI", "GOTO"];
+import Link from 'next/link';
+import { useEffect, useState } from 'react';
 
 export default function LandingPage() {
+  const [scrolled, setScrolled] = useState(false);
+
+  useEffect(() => {
+    const handleScroll = () => setScrolled(window.scrollY > 20);
+    window.addEventListener('scroll', handleScroll);
+    return () => window.removeEventListener('scroll', handleScroll);
+  }, []);
+
   return (
-    <main className="min-h-screen bg-gray-950 text-gray-100 flex flex-col">
-      {/* Navbar */}
-      <nav className="border-b border-gray-800 px-6 py-3 flex items-center justify-between">
-        <span className="font-mono font-bold text-white tracking-tight">IDXAnalyst</span>
-        <Link
-          href="/dashboard"
-          className="text-sm text-blue-400 hover:text-blue-300 transition-colors font-medium"
-        >
-          Dashboard →
-        </Link>
+    <div className="min-h-screen bg-[#050505] text-white selection:bg-blue-500/30">
+      {/* Navigation */}
+      <nav className={`fixed top-0 w-full z-50 transition-all duration-300 ${scrolled ? 'bg-black/80 backdrop-blur-md border-b border-white/10 py-4' : 'bg-transparent py-6'}`}>
+        <div className="max-w-7xl mx-auto px-6 flex justify-between items-center">
+          <div className="flex items-center gap-2">
+            <div className="w-8 h-8 bg-gradient-to-br from-blue-500 to-teal-400 rounded-lg flex items-center justify-center font-bold text-black shadow-lg shadow-blue-500/20">
+              IX
+            </div>
+            <span className="text-xl font-bold tracking-tighter">IDX<span className="text-blue-400">Analyst</span></span>
+          </div>
+          <div className="hidden md:flex items-center gap-8 text-sm font-medium text-gray-400">
+            <Link href="#features" className="hover:text-white transition-colors">Features</Link>
+            <Link href="/dashboard" className="hover:text-white transition-colors">Market</Link>
+            <Link href="/portfolio" className="hover:text-white transition-colors">Portfolio</Link>
+          </div>
+          <Link href="/trading" className="bg-white text-black px-5 py-2 rounded-full text-sm font-bold hover:bg-blue-400 transition-all active:scale-95">
+            Launch Terminal
+          </Link>
+        </div>
       </nav>
 
-      {/* Hero */}
-      <section className="flex-1 flex flex-col items-center justify-center text-center px-6 py-20">
-        <div className="inline-flex items-center gap-2 bg-gray-900 border border-gray-700 rounded-full px-3 py-1 text-xs text-gray-400 mb-8">
-          <span className="w-1.5 h-1.5 rounded-full bg-green-400 inline-block"></span>
-          IDX80 · Data End-of-Day
-        </div>
+      {/* Hero Section */}
+      <section className="relative pt-32 pb-20 md:pt-48 md:pb-32 overflow-hidden">
+        {/* Decorative Background Elements */}
+        <div className="absolute top-0 left-1/2 -translate-x-1/2 w-[1000px] h-[600px] bg-blue-600/10 blur-[120px] rounded-full -z-10" />
+        <div className="absolute top-40 right-0 w-[400px] h-[400px] bg-teal-500/10 blur-[100px] rounded-full -z-10" />
 
-        <h1 className="text-4xl sm:text-5xl font-bold tracking-tight mb-4 max-w-2xl leading-tight">
-          Analisis Teknikal<br />
-          <span className="text-blue-400">Saham Indonesia</span>
-        </h1>
-
-        <p className="text-gray-400 text-base sm:text-lg max-w-xl mb-10 leading-relaxed">
-          Platform analisis saham IDX80 dengan candlestick chart, 16 indikator teknikal,
-          dan data harian otomatis untuk investor Indonesia.
-        </p>
-
-        <div className="flex flex-wrap gap-3 justify-center mb-16">
-          <Link
-            href="/dashboard"
-            className="bg-blue-600 hover:bg-blue-500 text-white font-medium px-6 py-2.5 rounded-lg transition-colors text-sm"
-          >
-            Buka Dashboard
-          </Link>
-          <Link
-            href="/stocks/BBCA"
-            className="bg-gray-800 hover:bg-gray-700 border border-gray-700 text-gray-200 font-medium px-6 py-2.5 rounded-lg transition-colors text-sm font-mono"
-          >
-            Lihat BBCA →
-          </Link>
-        </div>
-
-        {/* Stats */}
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-px bg-gray-800 rounded-xl overflow-hidden border border-gray-800 w-full max-w-2xl">
-          {STATS.map(({ value, label }) => (
-            <div key={label} className="bg-gray-900 px-6 py-4 text-center">
-              <p className="text-2xl font-mono font-bold text-white mb-0.5">{value}</p>
-              <p className="text-xs text-gray-500">{label}</p>
-            </div>
-          ))}
-        </div>
-      </section>
-
-      {/* Features */}
-      <section className="px-6 pb-16 max-w-4xl mx-auto w-full">
-        <h2 className="text-xs font-semibold text-gray-500 uppercase tracking-widest text-center mb-8">
-          Fitur
-        </h2>
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-          {FEATURES.map(({ icon, title, desc }) => (
-            <div key={title} className="bg-gray-900 border border-gray-800 rounded-xl p-5 flex gap-4">
-              <div className="text-blue-400 mt-0.5 shrink-0">{icon}</div>
-              <div>
-                <h3 className="font-semibold text-sm text-gray-100 mb-1">{title}</h3>
-                <p className="text-gray-400 text-sm leading-relaxed">{desc}</p>
-              </div>
-            </div>
-          ))}
-        </div>
-      </section>
-
-      {/* Quick Jump */}
-      <section className="px-6 pb-16 max-w-4xl mx-auto w-full">
-        <h2 className="text-xs font-semibold text-gray-500 uppercase tracking-widest mb-4">
-          Saham Populer
-        </h2>
-        <div className="flex flex-wrap gap-2">
-          {SAMPLE_TICKERS.map((t) => (
-            <Link
-              key={t}
-              href={`/stocks/${t}`}
-              className="font-mono text-sm bg-gray-900 border border-gray-800 hover:border-blue-500 hover:text-blue-400 text-gray-300 px-4 py-2 rounded-lg transition-colors"
-            >
-              {t}
+        <div className="max-w-7xl mx-auto px-6 text-center">
+          <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-white/5 border border-white/10 text-xs font-medium text-blue-400 mb-6">
+            <span className="relative flex h-2 w-2">
+              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-blue-400 opacity-75"></span>
+              <span className="relative inline-flex rounded-full h-2 w-2 bg-blue-500"></span>
+            </span>
+            Powered by Gemini & Claude AI
+          </div>
+          <h1 className="text-5xl md:text-7xl font-extrabold tracking-tight mb-6 bg-gradient-to-b from-white to-gray-400 bg-clip-text text-transparent leading-tight">
+            Analyze. Backtest. <br />
+            <span className="text-blue-500">Trade Smarter.</span>
+          </h1>
+          <p className="max-w-2xl mx-auto text-gray-400 text-lg md:text-xl mb-10 leading-relaxed">
+            Platform analisis saham IDX80 tercanggih yang menggabungkan presisi teknikal dengan kecerdasan AI. Pantau portofolio simulasi Anda secara real-time.
+          </p>
+          <div className="flex flex-col md:flex-row gap-4 justify-center items-center">
+            <Link href="/trading" className="w-full md:w-auto bg-blue-600 hover:bg-blue-500 text-white px-8 py-4 rounded-xl font-bold text-lg transition-all shadow-xl shadow-blue-600/20 active:scale-95">
+              Get Started Now
             </Link>
+            <button className="w-full md:w-auto bg-white/5 hover:bg-white/10 border border-white/10 text-white px-8 py-4 rounded-xl font-bold text-lg transition-all backdrop-blur-sm">
+              Watch Demo
+            </button>
+          </div>
+        </div>
+      </section>
+
+      {/* Stats/Ticker Tape */}
+      <div className="border-y border-white/5 bg-white/[0.02] py-4 overflow-hidden">
+        <div className="flex animate-marquee whitespace-nowrap gap-12 text-sm font-mono text-gray-500">
+          {['BBCA +1.2%', 'ASII -0.5%', 'TLKM +2.4%', 'BMRI +0.8%', 'GOTO -4.2%', 'BBNI +1.5%', 'AMRT +3.1%', 'KLBF -1.1%'].map((tick, i) => (
+            <span key={i} className={tick.includes('+') ? 'text-green-400/70' : 'text-red-400/70'}>
+              {tick}
+            </span>
           ))}
-          <Link
-            href="/dashboard"
-            className="text-sm text-gray-500 hover:text-gray-300 px-4 py-2 transition-colors"
-          >
-            Lihat semua 80 saham →
-          </Link>
+          {/* Duplicate for seamless loop */}
+          {['BBCA +1.2%', 'ASII -0.5%', 'TLKM +2.4%', 'BMRI +0.8%', 'GOTO -4.2%', 'BBNI +1.5%', 'AMRT +3.1%', 'KLBF -1.1%'].map((tick, i) => (
+            <span key={`dup-${i}`} className={tick.includes('+') ? 'text-green-400/70' : 'text-red-400/70'}>
+              {tick}
+            </span>
+          ))}
+        </div>
+      </div>
+
+      {/* Features Grid */}
+      <section id="features" className="py-24 max-w-7xl mx-auto px-6">
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
+          {[
+            {
+              title: "AI-Driven Insights",
+              desc: "Claude & Gemini menganalisis ribuan data point untuk memberikan rekomendasi objektif.",
+              icon: "🤖"
+            },
+            {
+              title: "Real-time Backtesting",
+              desc: "Uji strategi trading Anda di data historis IDX80 dalam hitungan detik.",
+              icon: "📊"
+            },
+            {
+              title: "Smart Simulation",
+              desc: "Buka posisi trading simulasi dan biarkan AI membantu Anda mengelola risiko.",
+              icon: "🛡️"
+            }
+          ].map((feat, i) => (
+            <div key={i} className="group p-8 rounded-2xl bg-white/[0.03] border border-white/5 hover:border-blue-500/50 transition-all hover:bg-white/[0.05]">
+              <div className="text-4xl mb-4 grayscale group-hover:grayscale-0 transition-all">{feat.icon}</div>
+              <h3 className="text-xl font-bold mb-3">{feat.title}</h3>
+              <p className="text-gray-500 leading-relaxed text-sm">
+                {feat.desc}
+              </p>
+            </div>
+          ))}
         </div>
       </section>
 
       {/* Footer */}
-      <footer className="border-t border-gray-800 px-6 py-4 text-center text-xs text-gray-600">
-        IDXAnalyst · Data EOD via yfinance · Hanya untuk keperluan pribadi
+      <footer className="py-12 border-t border-white/5 text-center text-gray-600 text-sm">
+        <p>© 2026 IDXAnalyst Terminal. All rights reserved.</p>
       </footer>
-    </main>
+
+      <style jsx>{`
+        @keyframes marquee {
+          0% { transform: translateX(0); }
+          100% { transform: translateX(-50%); }
+        }
+        .animate-marquee {
+          display: flex;
+          animation: marquee 20s linear infinite;
+        }
+      `}</style>
+    </div>
   );
 }

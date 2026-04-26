@@ -16,4 +16,6 @@ app.add_middleware(
 )
 
 from routers.stocks import router as stocks_router  # noqa: E402
+from routers.trades import router as trades_router  # noqa: E402
 app.include_router(stocks_router)
+app.include_router(trades_router)

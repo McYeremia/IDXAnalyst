@@ -88,16 +88,18 @@ def get_historical_data(ticker: str, days: int = 30) -> str:
     return json.dumps(data, indent=2)
 
 @mcp.tool()
-def execute_simulated_trade(ticker: str, action: str, quantity_lots: int, price: Optional[float] = None, notes: str = "") -> str:
+def execute_simulated_trade(ticker: str, action: str, quantity_lots: int, price: Optional[float] = None, trade_type: str = "MANUAL", notes: str = "") -> str:
     """
     Mencatat transaksi simulasi (Paper Trading).
     - action: 'BUY' atau 'SELL'
     - quantity_lots: Jumlah lot (1 lot = 100 lembar)
     - price: Harga transaksi. Jika kosong, akan menggunakan harga closing terakhir.
+    - trade_type: 'MANUAL' (oleh user) atau 'AUTO' (oleh AI)
     """
     db = SessionLocal()
     ticker = ticker.upper()
     action = action.upper()
+    trade_type = trade_type.upper()
     
     if action not in ["BUY", "SELL"]:
         return "Action harus BUY atau SELL."
@@ -106,13 +108,12 @@ def execute_simulated_trade(ticker: str, action: str, quantity_lots: int, price:
     if not stock:
         return f"Saham {ticker} tidak ditemukan."
     
-    # Jika harga tidak ditentukan, ambil harga terakhir
     if price is None:
         latest = db.query(models.OHLCVDaily)\
                    .filter(models.OHLCVDaily.stock_id == stock.id)\
                    .order_by(desc(models.OHLCVDaily.date)).first()
         if not latest:
-            return "Tidak dapat menemukan harga market terakhir. Harap tentukan harga manual."
+            return "Tidak dapat menemukan harga market terakhir."
         price = latest.close
     
     new_trade = models.TradeLog(
@@ -121,17 +122,70 @@ def execute_simulated_trade(ticker: str, action: str, quantity_lots: int, price:
         date=date.today(),
         price=price,
         quantity=quantity_lots,
-        trade_type="MANUAL",
+        trade_type=trade_type,
         notes=notes
     )
     
     try:
         db.add(new_trade)
         db.commit()
-        res = f"Berhasil mencatat simulasi {action} {ticker}: {quantity_lots} lot pada harga {price}."
+        res = f"[{trade_type}] Berhasil mencatat simulasi {action} {ticker}: {quantity_lots} lot pada harga {price}."
     except Exception as e:
         db.rollback()
         res = f"Gagal mencatat transaksi: {str(e)}"
+    finally:
+        db.close()
+        
+    return res
+
+@mcp.tool()
+def scan_signals_and_auto_trade(rsi_threshold: float = 30.0, max_stocks: int = 5) -> str:
+    """
+    AI memindai seluruh IDX80 untuk mencari sinyal BUY otomatis.
+    Sinyal saat ini: RSI di bawah rsi_threshold.
+    AI akan membuka posisi AUTO sebanyak 10 lot untuk setiap saham yang ditemukan.
+    """
+    db = SessionLocal()
+    stocks = db.query(models.Stock).all()
+    trades_executed = []
+    
+    for stock in stocks:
+        if len(trades_executed) >= max_stocks:
+            break
+            
+        indicators = ind_svc.calculate_indicators(db, stock)
+        rsi = indicators.get("RSI_14")
+        
+        if rsi and rsi <= rsi_threshold:
+            # Cek apakah sudah punya posisi terbuka (sederhana)
+            existing = db.query(models.TradeLog).filter(models.TradeLog.stock_id == stock.id).first()
+            if existing: continue # Skip jika sudah pernah ada transaksi (untuk simulasi sederhana)
+            
+            # Eksekusi AUTO Trade
+            latest = db.query(models.OHLCVDaily).filter(models.OHLCVDaily.stock_id == stock.id).order_by(desc(models.OHLCVDaily.date)).first()
+            if not latest: continue
+            
+            new_trade = models.TradeLog(
+                stock_id=stock.id,
+                action="BUY",
+                date=date.today(),
+                price=latest.close,
+                quantity=10, # Default 10 lot untuk auto
+                trade_type="AUTO",
+                notes=f"AI Auto-buy: RSI {round(rsi, 2)} <= {rsi_threshold}"
+            )
+            db.add(new_trade)
+            trades_executed.append(f"{stock.ticker} (RSI: {round(rsi, 2)})")
+    
+    try:
+        db.commit()
+        if trades_executed:
+            res = "AI berhasil membuka posisi otomatis pada: " + ", ".join(trades_executed)
+        else:
+            res = "AI memindai pasar namun tidak menemukan sinyal yang sesuai kriteria saat ini."
+    except Exception as e:
+        db.rollback()
+        res = f"Gagal menjalankan auto-trade: {str(e)}"
     finally:
         db.close()
         
