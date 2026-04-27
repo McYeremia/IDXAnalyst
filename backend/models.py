@@ -113,9 +113,10 @@ class TradeLog(Base):
     date = Column(Date, nullable=False, index=True)
     price = Column(Float, nullable=False)
     quantity = Column(Integer, nullable=False)       # In Lots (100 shares)
-    trade_type = Column(String(20), nullable=False)  # MANUAL / AUTO
+    trade_type = Column(String(20), nullable=False)  # MANUAL / AUTO_GEMINI / AUTO_CLAUDE
+    strategy_id = Column(String(50), nullable=True)  # New: ID strategi yang digunakan
+    notes = Column(String(255))                      # New: Alasan beli/jual (reasoning)
     backtest_run_id = Column(Integer, ForeignKey("backtest_runs.id"), nullable=True)
-    notes = Column(String(255))
     created_at = Column(DateTime, server_default=func.now())
 
     stock = relationship("Stock", back_populates="trades")

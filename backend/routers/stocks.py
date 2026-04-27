@@ -38,24 +38,62 @@ def list_stocks(db: Session = Depends(get_db)):
         })
     return result
 
+
+# Static paths must come BEFORE parameterized /{ticker} routes
+@router.get("/signals")
+def get_ai_signals(db: Session = Depends(get_db)):
+    signals = db.query(models.Signal).order_by(desc(models.Signal.created_at)).limit(20).all()
+    result = []
+    for s in signals:
+        result.append({
+            "ticker": s.stock.ticker,
+            "type": s.type,
+            "strategy": s.strategy_id,
+            "description": s.description,
+            "strength": s.strength,
+            "date": s.created_at.strftime("%Y-%m-%d %H:%M")
+        })
+    return result
+
+
+@router.post("/refresh")
+def refresh_all(db: Session = Depends(get_db)):
+    fetcher.seed_stocks(db)
+    results = {}
+    for stock in db.query(models.Stock).all():
+        try:
+            df = fetcher.fetch_ohlcv(stock.ticker)
+            count = fetcher.save_ohlcv(db, stock, df)
+            results[stock.ticker] = {"status": "ok", "new_rows": count}
+        except Exception as e:
+            results[stock.ticker] = {"status": "error", "error": str(e)}
+    return results
+
+
+@router.post("/scan")
+def trigger_scan(db: Session = Depends(get_db)):
+    import services.watcher as watcher
+    print("LOG: Triggering AI Market Scan via API...")
+    count = watcher.scan_market_signals()
+    return {"status": "ok", "message": f"Scan complete. Found {count} signals."}
+
+
+# Parameterized routes after static ones
 @router.post("/{ticker}")
 def add_custom_stock(ticker: str, db: Session = Depends(get_db)):
     ticker = ticker.upper()
-    # Cek apakah sudah ada
     existing = db.query(models.Stock).filter(models.Stock.ticker == ticker).first()
     if existing:
         return {"status": "exists", "ticker": ticker}
-    
-    # Ambil info dari yfinance
+
     try:
         yf_ticker = yf.Ticker(f"{ticker}.JK")
         info = yf_ticker.info
-        
-        # Jika tidak ketemu dengan .JK, coba tanpa suffix (untuk US stocks)
+
         if not info or 'longName' not in info:
             yf_ticker = yf.Ticker(ticker)
             info = yf_ticker.info
-            
+
         if not info or 'longName' not in info:
             raise HTTPException(status_code=404, detail="Stock not found on Yahoo Finance")
 
@@ -68,14 +106,14 @@ def add_custom_stock(ticker: str, db: Session = Depends(get_db)):
         db.add(new_stock)
         db.commit()
         db.refresh(new_stock)
-        
-        # Trigger refresh data awal (5 tahun)
+
         df = fetcher.fetch_ohlcv(ticker)
         fetcher.save_ohlcv(db, new_stock, df)
-        
+
         return {"status": "added", "ticker": ticker, "name": new_stock.name}
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
+
 
 @router.get("/{ticker}/ohlcv")
 def get_ohlcv(
@@ -113,42 +151,6 @@ def get_indicators(ticker: str, db: Session = Depends(get_db)):
         raise HTTPException(status_code=404, detail=f"Stock {ticker.upper()} not found")
     return {"ticker": stock.ticker, "indicators": ind_svc.calculate_indicators(db, stock)}
 
-
-@router.post("/refresh")
-def refresh_all(db: Session = Depends(get_db)):
-    fetcher.seed_stocks(db)
-    results = {}
-    for stock in db.query(models.Stock).all():
-        try:
-            df = fetcher.fetch_ohlcv(stock.ticker)
-            count = fetcher.save_ohlcv(db, stock, df)
-            results[stock.ticker] = {"status": "ok", "new_rows": count}
-        except Exception as e:
-            results[stock.ticker] = {"status": "error", "error": str(e)}
-    return results
-
-
-@router.get("/signals")
-def get_ai_signals(db: Session = Depends(get_db)):
-    signals = db.query(models.Signal).order_by(desc(models.Signal.created_at)).limit(20).all()
-    result = []
-    for s in signals:
-        result.append({
-            "ticker": s.stock.ticker,
-            "type": s.type,
-            "strategy": s.strategy_id,
-            "description": s.description,
-            "strength": s.strength,
-            "date": s.created_at.strftime("%Y-%m-%d %H:%M")
-        })
-    return result
-
-@router.post("/scan")
-def trigger_scan(db: Session = Depends(get_db)):
-    import services.watcher as watcher
-    print("LOG: Triggering AI Market Scan via API...")
-    count = watcher.scan_market_signals()
-    return {"status": "ok", "message": f"Scan complete. Found {count} signals."}
 
 @router.post("/{ticker}/refresh")
 def refresh_stock(ticker: str, db: Session = Depends(get_db)):

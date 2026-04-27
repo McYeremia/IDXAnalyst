@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { api, Stock, MultiPortfolio, OHLCV } from '@/lib/api';
+import { api, Stock, MultiPortfolioResponse, OHLCV } from '@/lib/api';
 import Link from 'next/link';
 import dynamic from 'next/dynamic';
 
@@ -18,7 +18,7 @@ interface Signal {
 
 export default function Dashboard() {
   const [stocks, setStocks] = useState<Stock[]>([]);
-  const [portfolioSummary, setPortfolioSummary] = useState<MultiPortfolio>({ USER: [], GEMINI: [], CLAUDE: [] });
+  const [portfolio, setPortfolio] = useState<MultiPortfolioResponse | null>(null);
   const [signals, setSignals] = useState<Signal[]>([]);
   const [ihsgData, setIhsgData] = useState<OHLCV[]>([]);
   const [loading, setLoading] = useState(true);
@@ -37,8 +37,7 @@ export default function Dashboard() {
         api.getSignals()
       ]);
       setStocks(stocksData);
-      // Gunakan portfolioData.summary karena sekarang respons API memiliki summary dan history
-      setPortfolioSummary(portfolioData.summary);
+      setPortfolio(portfolioData);
       setIhsgData(ihsg.data || []);
       setSignals(signalsData || []);
     } catch (err) {
@@ -80,9 +79,8 @@ export default function Dashboard() {
     }
   };
 
-  // Gabungkan semua portofolio untuk total P&L
-  const allHoldings = [...portfolioSummary.USER, ...portfolioSummary.GEMINI, ...portfolioSummary.CLAUDE];
-  const totalUnrealized = allHoldings.reduce((sum, item) => sum + item.unrealized_pnl, 0);
+  // Gabungkan semua portofolio untuk total P&L jika portfolio sudah terisi
+  const totalUnrealized = portfolio ? (portfolio.USER.unrealized + portfolio.GEMINI.unrealized + portfolio.CLAUDE.unrealized) : 0;
   
   const filteredStocks = stocks.filter(s => s.ticker !== '^JKSE' && (s.ticker.toLowerCase().includes(searchTerm.toLowerCase()) || s.name.toLowerCase().includes(searchTerm.toLowerCase())));
 
@@ -97,8 +95,8 @@ export default function Dashboard() {
       <div className="max-w-7xl mx-auto">
         
         {/* TOP SECTION: IHSG & AI SIGNALS */}
-        <div className="grid grid-cols-1 xl:grid-cols-12 gap-6 mb-10">
-          <div className="xl:col-span-7 bg-white/[0.02] border border-white/10 rounded-[2.5rem] p-8 shadow-2xl relative overflow-hidden group text-left">
+        <div className="grid grid-cols-1 xl:grid-cols-12 gap-6 mb-10 text-left">
+          <div className="xl:col-span-7 bg-white/[0.02] border border-white/10 rounded-[2.5rem] p-8 shadow-2xl relative overflow-hidden group">
             <div className="flex justify-between items-start mb-6">
                <div>
                   <p className="text-[9px] font-black text-blue-500 uppercase tracking-[0.4em] mb-1">Jakarta Composite</p>
@@ -117,7 +115,7 @@ export default function Dashboard() {
           </div>
 
           <div className="xl:col-span-5 flex flex-col gap-6">
-             <div className="bg-gradient-to-br from-teal-600/10 to-transparent border border-teal-500/20 rounded-[2.5rem] p-8 flex-1 flex flex-col text-left">
+             <div className="bg-gradient-to-br from-teal-600/10 to-transparent border border-teal-500/20 rounded-[2.5rem] p-8 flex-1 flex flex-col">
                 <div className="flex justify-between items-center mb-6">
                    <h2 className="text-[10px] font-black text-teal-400 uppercase tracking-[0.4em]">AI Intelligence Signals</h2>
                    <button onClick={handleScan} disabled={isScanning} className="bg-teal-500 hover:bg-teal-400 text-black px-4 py-1.5 rounded-full text-[8px] font-black tracking-widest uppercase disabled:opacity-50">
@@ -130,7 +128,7 @@ export default function Dashboard() {
                         <p>No active signals found.</p>
                      </div>
                    ) : (
-                     <div className="space-y-3 text-left">
+                     <div className="space-y-3">
                         {signals.map((sig, i) => (
                           <Link href={`/stocks/${sig.ticker}`} key={i} className="block group bg-white/5 border border-white/5 hover:border-teal-500/30 p-4 rounded-2xl transition-all">
                              <div className="flex justify-between items-center mb-1">
@@ -148,13 +146,13 @@ export default function Dashboard() {
         </div>
 
         {/* STATS */}
-        <div className="grid grid-cols-1 md:grid-cols-4 gap-6 mb-10 text-left">
+        <div className="grid grid-cols-1 md:grid-cols-4 gap-6 mb-10 text-left text-left">
           <div className="col-span-1 md:col-span-2 p-8 rounded-3xl bg-white/[0.03] border border-white/5 flex flex-col justify-center">
              <p className="text-gray-500 text-[10px] font-mono uppercase tracking-[0.3em] mb-2">Assets Tracked</p>
              <p className="text-5xl font-black font-mono">{stocks.length}</p>
           </div>
           <div className="p-8 rounded-3xl bg-white/[0.02] border border-white/5 flex flex-col justify-center">
-             <p className="text-gray-600 text-[9px] font-mono uppercase mb-4 tracking-widest font-bold">Performance Summary</p>
+             <p className="text-gray-600 text-[9px] font-mono uppercase mb-4 tracking-widest font-bold text-gray-500">Total Unrealized</p>
              <p className={`text-2xl font-black font-mono ${totalUnrealized >= 0 ? 'text-green-400' : 'text-red-400'}`}>
                 Rp {totalUnrealized.toLocaleString('id-ID')}
              </p>
@@ -162,32 +160,32 @@ export default function Dashboard() {
           <div className="p-8 rounded-3xl bg-white/[0.02] border border-white/5 flex flex-col justify-center text-right">
              <p className="text-gray-600 text-[9px] font-mono uppercase mb-2 tracking-widest font-bold">Positions</p>
              <div className="flex flex-col gap-1">
-                <span className="text-xs font-bold text-blue-400 font-mono">User: {portfolioSummary.USER.filter(p => p.shares > 0).length}</span>
-                <span className="text-xs font-bold text-teal-400 font-mono">Gemini: {portfolioSummary.GEMINI.filter(p => p.shares > 0).length}</span>
-                <span className="text-xs font-bold text-purple-400 font-mono">Claude: {portfolioSummary.CLAUDE.filter(p => p.shares > 0).length}</span>
+                <span className="text-xs font-bold text-blue-400 font-mono">User: {portfolio?.USER.assets.length || 0}</span>
+                <span className="text-xs font-bold text-teal-400 font-mono">Gemini: {portfolio?.GEMINI.assets.length || 0}</span>
+                <span className="text-xs font-bold text-purple-400 font-mono">Claude: {portfolio?.CLAUDE.assets.length || 0}</span>
              </div>
           </div>
         </div>
 
-        {/* MARKET LIST */}
+        {/* MARKET GRID */}
         <div className="flex flex-col md:flex-row justify-between items-center mb-8 gap-4 px-2">
            <h2 className="text-xs font-black font-mono uppercase tracking-[0.4em] text-gray-500">Market Terminal</h2>
            <input 
               type="text"
               placeholder="Search assets..."
-              className="bg-white/5 border border-white/10 rounded-xl px-6 py-3 text-xs focus:outline-none focus:border-blue-500/50 w-full md:w-80 shadow-inner transition-all"
+              className="bg-white/5 border border-white/10 rounded-xl px-6 py-3 text-xs focus:outline-none focus:border-blue-500/50 w-full md:w-80 shadow-inner"
               onChange={(e) => setSearchTerm(e.target.value)}
             />
         </div>
         
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 pb-20 px-2">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 pb-20 px-2 text-left text-left text-left">
           {filteredStocks.map((stock) => {
-            const hasUser = portfolioSummary.USER.some(p => p.ticker === stock.ticker && p.shares > 0);
-            const hasGemini = portfolioSummary.GEMINI.some(p => p.ticker === stock.ticker && p.shares > 0);
-            const hasClaude = portfolioSummary.CLAUDE.some(p => p.ticker === stock.ticker && p.shares > 0);
+            const hasUser = portfolio?.USER.assets.some(p => p.ticker === stock.ticker);
+            const hasGemini = portfolio?.GEMINI.assets.some(p => p.ticker === stock.ticker);
+            const hasClaude = portfolio?.CLAUDE.assets.some(p => p.ticker === stock.ticker);
             
             return (
-              <Link key={stock.ticker} href={`/stocks/${stock.ticker}`} className="group p-6 rounded-3xl bg-white/[0.02] border border-white/5 hover:border-blue-500/30 hover:bg-white/[0.04] transition-all relative overflow-hidden text-left shadow-sm">
+              <Link key={stock.ticker} href={`/stocks/${stock.ticker}`} className="group p-6 rounded-3xl bg-white/[0.02] border border-white/5 hover:border-blue-500/30 hover:bg-white/[0.04] transition-all relative overflow-hidden shadow-sm">
                 <div className="flex justify-between items-start mb-6">
                   <div>
                     <h3 className="text-2xl font-black group-hover:text-blue-400 transition-colors leading-none mb-1">{stock.ticker}</h3>
@@ -195,8 +193,8 @@ export default function Dashboard() {
                   </div>
                   <div className="flex flex-col gap-1 items-end">
                     {hasUser && <span className="px-2 py-0.5 rounded bg-blue-500 text-black text-[7px] font-black uppercase">User</span>}
-                    {hasGemini && <span className="px-2 py-0.5 rounded bg-teal-500 text-black text-[7px] font-black uppercase tracking-tighter">Gemini</span>}
-                    {hasClaude && <span className="px-2 py-0.5 rounded bg-purple-500 text-white text-[7px] font-black uppercase tracking-tighter text-center">Claude</span>}
+                    {hasGemini && <span className="px-2 py-0.5 rounded bg-teal-500 text-black text-[7px] font-black uppercase">Gemini</span>}
+                    {hasClaude && <span className="px-2 py-0.5 rounded bg-purple-500 text-white text-[7px] font-black uppercase tracking-tighter">Claude</span>}
                   </div>
                 </div>
                 <div className="flex justify-between items-end border-t border-white/[0.03] pt-4">

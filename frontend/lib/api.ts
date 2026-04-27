@@ -24,28 +24,38 @@ export interface PortfolioItem {
   ticker: string;
   shares: number;
   avg_buy_price: number;
-  cost_basis: number; // New field
+  cost_basis: number;
   current_price: number;
   unrealized_pnl: number;
   realized_pnl: number;
+  strategy?: string;
+  notes?: string;
 }
 
-export interface EquityPoint {
-  date: string;
-  value: number;
+export interface AgentPortfolio {
+  modal: number;
+  invested: number;
+  unrealized: number;
+  realized: number;
+  assets: PortfolioItem[];
 }
 
 export interface MultiPortfolioResponse {
-  summary: {
-    USER: PortfolioItem[];
-    GEMINI: PortfolioItem[];
-    CLAUDE: PortfolioItem[];
-  };
-  history: {
-    USER: EquityPoint[];
-    GEMINI: EquityPoint[];
-    CLAUDE: EquityPoint[];
-  };
+  USER: AgentPortfolio;
+  GEMINI: AgentPortfolio;
+  CLAUDE: AgentPortfolio;
+}
+
+export interface TradeHistory {
+  id: number;
+  ticker: string;
+  action: 'BUY' | 'SELL';
+  date: string;
+  price: number;
+  quantity: number;
+  total_value: number;
+  strategy: string;
+  notes: string;
 }
 
 export const api = {
@@ -67,11 +77,10 @@ export const api = {
 
   async getPortfolio(): Promise<MultiPortfolioResponse> {
     const res = await fetch(`${API_BASE_URL}/trades/portfolio`);
-    if (!res.ok) return { summary: { USER: [], GEMINI: [], CLAUDE: [] }, history: { USER: [], GEMINI: [], CLAUDE: [] } };
     return res.json();
   },
 
-  async executeTrade(ticker: string, action: 'BUY' | 'SELL', quantity: number, price?: number, tradeType: string = 'MANUAL', notes?: string) {
+  async executeTrade(ticker: string, action: 'BUY' | 'SELL', quantity: number, price?: number, tradeType: string = 'MANUAL', notes?: string, strategyId?: string) {
     const res = await fetch(`${API_BASE_URL}/trades`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -81,7 +90,8 @@ export const api = {
         quantity,
         price,
         trade_type: tradeType,
-        notes
+        notes,
+        strategy_id: strategyId
       }),
     });
     return res.json();
@@ -115,6 +125,16 @@ export const api = {
 
   async triggerScan() {
     const res = await fetch(`${API_BASE_URL}/stocks/scan`, { method: 'POST' });
+    return res.json();
+  },
+
+  async getPortfolioGrowth(): Promise<Record<'USER' | 'GEMINI' | 'CLAUDE', { date: string; value: number }[]>> {
+    const res = await fetch(`${API_BASE_URL}/trades/growth`);
+    return res.json();
+  },
+
+  async getTradeHistory(agent: 'USER' | 'GEMINI' | 'CLAUDE'): Promise<TradeHistory[]> {
+    const res = await fetch(`${API_BASE_URL}/trades/history?agent=${agent}`);
     return res.json();
   }
 };
