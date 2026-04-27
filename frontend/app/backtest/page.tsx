@@ -7,6 +7,20 @@ import dynamic from 'next/dynamic';
 import strategyRegistry from '../../strategies_local/registry.json';
 
 const EquityChart = dynamic(() => import('@/components/EquityChart'), { ssr: false });
+const CompareEquityChart = dynamic(() => import('@/components/CompareEquityChart'), { ssr: false });
+
+const STRATEGY_COLORS: Record<string, string> = {
+  'triple-confirmation':  '#3b82f6',
+  'volatility-sniper':    '#10b981',
+  'institutional-trend':  '#8b5cf6',
+  'exhaustion-play':      '#f59e0b',
+  'trend-accelerator':    '#06b6d4',
+  'pure-momentum':        '#ec4899',
+  'defensive-bull':       '#84cc16',
+  'stoch-rsi-hybrid':     '#f97316',
+  'rsi-reversion':        '#ef4444',
+  'ma-cross':             '#a78bfa',
+};
 
 export default function BacktestPage() {
   const [results, setResults] = useState<Record<string, BacktestResult>>({});
@@ -16,6 +30,7 @@ export default function BacktestPage() {
   const [capitalInput, setCapitalInput] = useState('10000000');
   const [isRunningAll, setIsRunningAll] = useState(false);
   const [expandedId, setExpandedId] = useState<string | null>(null);
+  const [showCompare, setShowCompare] = useState(false);
 
   const parsedCapital = Math.max(1_000_000, parseInt(capitalInput.replace(/\D/g, '')) || 10_000_000);
 
@@ -47,17 +62,27 @@ export default function BacktestPage() {
   const runAllTests = async () => {
     setIsRunningAll(true);
     setResults({});
+    setShowCompare(false);
     for (const strat of strategyRegistry) {
       await runSingleTest(strat.id);
     }
     setIsRunningAll(false);
+    setShowCompare(true);
   };
 
   const validResults = Object.values(results).filter(r => r.metrics);
-  const bestStrategy = validResults.length > 0
-    ? [...validResults].sort((a, b) => b.metrics.total_return_pct - a.metrics.total_return_pct)[0]
-    : null;
+  const rankedResults = [...validResults].sort((a, b) => b.metrics.total_return_pct - a.metrics.total_return_pct);
+  const bestStrategy = rankedResults[0] ?? null;
   const bestStratInfo = strategyRegistry.find(s => s.id === bestStrategy?.strategy_id);
+
+  const compareSeriesData = validResults
+    .filter(r => r.equity_curve?.length > 1)
+    .map(r => ({
+      id: r.strategy_id,
+      name: strategyRegistry.find(s => s.id === r.strategy_id)?.name ?? r.strategy_id,
+      color: STRATEGY_COLORS[r.strategy_id] ?? '#64748b',
+      data: r.equity_curve,
+    }));
 
   return (
     <main className="min-h-screen bg-[#050505] text-white p-6 md:p-10 pt-24 md:pt-28">
@@ -104,6 +129,18 @@ export default function BacktestPage() {
             >
               {isRunningAll ? 'RUNNING ALL...' : 'RUN ALL STRATEGIES'}
             </button>
+            {validResults.length >= 2 && (
+              <button
+                onClick={() => setShowCompare(v => !v)}
+                className={`px-6 py-4 rounded-2xl text-[10px] font-black tracking-widest transition-all ${
+                  showCompare
+                    ? 'bg-teal-500 text-black'
+                    : 'bg-white/5 border border-white/10 hover:bg-white/10 text-white'
+                }`}
+              >
+                {showCompare ? 'HIDE COMPARE' : 'COMPARE VIEW'}
+              </button>
+            )}
           </div>
         </div>
 
@@ -130,6 +167,97 @@ export default function BacktestPage() {
                 <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M14 5l7 7m0 0l-7 7m7-7H3" /></svg>
               </Link>
             </div>
+          </div>
+        )}
+
+        {/* COMPARE VIEW */}
+        {showCompare && validResults.length >= 2 && (
+          <div className="mb-12 space-y-6">
+
+            {/* Ranked Table */}
+            <div className="bg-white/[0.02] border border-white/5 rounded-3xl p-8">
+              <p className="text-[9px] font-black text-teal-400 uppercase tracking-[0.4em] mb-6">
+                Strategy Ranking — {selectedTicker} — {validResults.length} strategies tested
+              </p>
+              <div className="overflow-x-auto">
+                <table className="w-full text-xs font-mono">
+                  <thead>
+                    <tr className="text-gray-600 text-[9px] uppercase tracking-widest border-b border-white/5">
+                      <th className="text-left pb-3 pr-4 font-black">#</th>
+                      <th className="text-left pb-3 pr-4 font-black">Strategy</th>
+                      <th className="text-right pb-3 pr-4 font-black">Return</th>
+                      <th className="text-right pb-3 pr-4 font-black">Win Rate</th>
+                      <th className="text-right pb-3 pr-4 font-black">Max DD</th>
+                      <th className="text-right pb-3 pr-4 font-black">Trades</th>
+                      <th className="text-right pb-3 font-black">Final Value</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-white/[0.03]">
+                    {rankedResults.map((r, idx) => {
+                      const info = strategyRegistry.find(s => s.id === r.strategy_id);
+                      const color = STRATEGY_COLORS[r.strategy_id] ?? '#64748b';
+                      return (
+                        <tr key={r.strategy_id} className={`hover:bg-white/[0.02] transition-colors ${idx === 0 ? 'bg-blue-600/5' : ''}`}>
+                          <td className="py-3 pr-4 text-gray-500 font-black text-[11px]">{idx + 1}</td>
+                          <td className="py-3 pr-4">
+                            <div className="flex items-center gap-2">
+                              <div className="w-2 h-2 rounded-full shrink-0" style={{ backgroundColor: color }} />
+                              <span className="font-bold text-white text-[11px]">{info?.name ?? r.strategy_id}</span>
+                              {idx === 0 && (
+                                <span className="text-[7px] font-black bg-blue-500 text-black px-1.5 py-0.5 rounded uppercase">BEST</span>
+                              )}
+                            </div>
+                          </td>
+                          <td className={`py-3 pr-4 text-right font-black text-sm ${r.metrics.total_return_pct >= 0 ? 'text-green-400' : 'text-red-400'}`}>
+                            {r.metrics.total_return_pct >= 0 ? '+' : ''}{r.metrics.total_return_pct}%
+                          </td>
+                          <td className={`py-3 pr-4 text-right font-bold ${r.metrics.win_rate >= 50 ? 'text-blue-400' : 'text-orange-400'}`}>
+                            {r.metrics.win_rate}%
+                          </td>
+                          <td className="py-3 pr-4 text-right text-orange-400">
+                            -{r.metrics.max_drawdown_pct}%
+                          </td>
+                          <td className="py-3 pr-4 text-right text-gray-400">
+                            {r.metrics.total_trades}
+                          </td>
+                          <td className={`py-3 text-right font-black ${r.metrics.final_value >= r.metrics.initial_capital ? 'text-green-400' : 'text-red-400'}`}>
+                            Rp {(r.metrics.final_value / 1_000_000).toFixed(1)}M
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+
+            {/* Overlay Equity Chart */}
+            {compareSeriesData.length >= 2 && (
+              <div className="bg-white/[0.02] border border-white/5 rounded-3xl p-8">
+                <p className="text-[9px] font-black text-teal-400 uppercase tracking-[0.4em] mb-6">
+                  Equity Curve Overlay
+                </p>
+                <div className="rounded-2xl overflow-hidden bg-black/20 mb-5">
+                  <CompareEquityChart series={compareSeriesData} height={280} />
+                </div>
+                <div className="flex flex-wrap gap-x-5 gap-y-2">
+                  {compareSeriesData.map(s => {
+                    const r = results[s.id];
+                    return (
+                      <div key={s.id} className="flex items-center gap-2 text-[9px] font-mono">
+                        <div className="w-4 h-0.5 rounded-full" style={{ backgroundColor: s.color }} />
+                        <span className="text-gray-400">{s.name}</span>
+                        {r?.metrics && (
+                          <span className={`font-black ${r.metrics.total_return_pct >= 0 ? 'text-green-400' : 'text-red-400'}`}>
+                            {r.metrics.total_return_pct >= 0 ? '+' : ''}{r.metrics.total_return_pct}%
+                          </span>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
           </div>
         )}
 
