@@ -23,11 +23,11 @@ export interface OHLCV {
 export interface PortfolioItem {
   ticker: string;
   shares: number;
-  avg_buy_price: number;
-  cost_basis: number;
+  avg_price: number;
   current_price: number;
+  last_date: string | null;
+  cost_basis: number;
   unrealized_pnl: number;
-  realized_pnl: number;
   strategy?: string;
   notes?: string;
 }
@@ -37,6 +37,7 @@ export interface AgentPortfolio {
   invested: number;
   unrealized: number;
   realized: number;
+  total_value: number;
   assets: PortfolioItem[];
 }
 
@@ -54,8 +55,27 @@ export interface TradeHistory {
   price: number;
   quantity: number;
   total_value: number;
+  pnl: number | null;
+  pnl_pct: number | null;
   strategy: string;
   notes: string;
+}
+
+export interface BacktestResult {
+  strategy_id: string;
+  ticker: string;
+  metrics: {
+    win_rate: number;
+    total_return_pct: number;
+    total_trades: number;
+    wins: number;
+    losses: number;
+    max_drawdown_pct: number;
+    initial_capital: number;
+    final_value: number;
+  };
+  equity_curve: { date: string; value: number }[];
+  trades: { date: string; type: string; price: number; pnl?: number; pnl_pct?: number }[];
 }
 
 export const api = {
@@ -65,7 +85,9 @@ export const api = {
   },
 
   async getOHLCV(ticker: string, from?: string): Promise<{ data: OHLCV[] }> {
-    const url = from ? `${API_BASE_URL}/stocks/${ticker}/ohlcv?from=${from}` : `${API_BASE_URL}/stocks/${ticker}/ohlcv`;
+    const url = from
+      ? `${API_BASE_URL}/stocks/${ticker}/ohlcv?from=${from}`
+      : `${API_BASE_URL}/stocks/${ticker}/ohlcv`;
     const res = await fetch(url);
     return res.json();
   },
@@ -80,7 +102,15 @@ export const api = {
     return res.json();
   },
 
-  async executeTrade(ticker: string, action: 'BUY' | 'SELL', quantity: number, price?: number, tradeType: string = 'MANUAL', notes?: string, strategyId?: string) {
+  async executeTrade(
+    ticker: string,
+    action: 'BUY' | 'SELL',
+    quantity: number,
+    price?: number,
+    tradeType: string = 'MANUAL',
+    notes?: string,
+    strategyId?: string
+  ) {
     const res = await fetch(`${API_BASE_URL}/trades`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -91,19 +121,21 @@ export const api = {
         price,
         trade_type: tradeType,
         notes,
-        strategy_id: strategyId
+        strategy_id: strategyId,
       }),
     });
     return res.json();
   },
 
   async refreshData(ticker?: string) {
-    const url = ticker ? `${API_BASE_URL}/stocks/${ticker}/refresh` : `${API_BASE_URL}/stocks/refresh`;
+    const url = ticker
+      ? `${API_BASE_URL}/stocks/${ticker}/refresh`
+      : `${API_BASE_URL}/stocks/refresh`;
     const res = await fetch(url, { method: 'POST' });
     return res.json();
   },
 
-  async runBacktest(ticker: string, strategyId: string) {
+  async runBacktest(ticker: string, strategyId: string): Promise<BacktestResult> {
     const res = await fetch(`${API_BASE_URL}/backtest/run/${ticker}/${strategyId}`);
     return res.json();
   },
@@ -136,5 +168,5 @@ export const api = {
   async getTradeHistory(agent: 'USER' | 'GEMINI' | 'CLAUDE'): Promise<TradeHistory[]> {
     const res = await fetch(`${API_BASE_URL}/trades/history?agent=${agent}`);
     return res.json();
-  }
+  },
 };

@@ -125,18 +125,38 @@ def run_backtest(db: Session, stock_ticker: str, strategy_id: str, initial_capit
 
     closed_trades = [t for t in trades if "pnl" in t]
     if not closed_trades: return {"error": "No trades executed for this strategy"}
-    
+
     wins = [t for t in closed_trades if t['pnl'] > 0]
     win_rate = (len(wins) / len(closed_trades)) * 100
     total_return = ((equity_curve[-1]['value'] - initial_capital) / initial_capital) * 100
+    max_dd = 0.0
+    peak = initial_capital
+    for pt in equity_curve:
+        if pt['value'] > peak:
+            peak = pt['value']
+        dd = (peak - pt['value']) / peak * 100
+        if dd > max_dd:
+            max_dd = dd
+
+    # Downsample equity_curve to max 500 points for performance
+    step = max(1, len(equity_curve) // 500)
+    sampled_curve = equity_curve[::step]
+    if equity_curve[-1] != sampled_curve[-1]:
+        sampled_curve.append(equity_curve[-1])
 
     return {
         "strategy_id": strategy_id,
+        "ticker": stock_ticker,
         "metrics": {
             "win_rate": round(win_rate, 2),
             "total_return_pct": round(total_return, 2),
             "total_trades": len(closed_trades),
             "wins": len(wins),
-            "losses": len(closed_trades) - len(wins)
-        }
+            "losses": len(closed_trades) - len(wins),
+            "max_drawdown_pct": round(max_dd, 2),
+            "initial_capital": initial_capital,
+            "final_value": round(equity_curve[-1]['value'], 2),
+        },
+        "equity_curve": sampled_curve,
+        "trades": closed_trades,
     }

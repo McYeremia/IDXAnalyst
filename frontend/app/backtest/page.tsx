@@ -1,20 +1,12 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { api } from '@/lib/api';
+import { api, BacktestResult } from '@/lib/api';
 import Link from 'next/link';
+import dynamic from 'next/dynamic';
 import strategyRegistry from '../../strategies_local/registry.json';
 
-interface BacktestResult {
-  strategy_id: string;
-  metrics?: {
-    win_rate: number;
-    total_return_pct: number;
-    total_trades: number;
-    wins: number;
-    losses: number;
-  };
-}
+const EquityChart = dynamic(() => import('@/components/EquityChart'), { ssr: false });
 
 export default function BacktestPage() {
   const [results, setResults] = useState<Record<string, BacktestResult>>({});
@@ -27,7 +19,10 @@ export default function BacktestPage() {
     setLoading(strategyId);
     try {
       const res = await api.runBacktest(selectedTicker, strategyId);
-      setResults(prev => ({ ...prev, [strategyId]: res }));
+      if (!('error' in res)) {
+        setResults(prev => ({ ...prev, [strategyId]: res }));
+        setExpandedId(strategyId);
+      }
     } catch (err) {
       console.error(err);
     } finally {
@@ -37,6 +32,7 @@ export default function BacktestPage() {
 
   const runAllTests = async () => {
     setIsRunningAll(true);
+    setResults({});
     for (const strat of strategyRegistry) {
       await runSingleTest(strat.id);
     }
@@ -44,138 +40,192 @@ export default function BacktestPage() {
   };
 
   const validResults = Object.values(results).filter(r => r.metrics);
-  const bestStrategy = validResults.length > 0 
-    ? [...validResults].sort((a, b) => (b.metrics?.win_rate || 0) - (a.metrics?.win_rate || 0))[0] 
+  const bestStrategy = validResults.length > 0
+    ? [...validResults].sort((a, b) => b.metrics.total_return_pct - a.metrics.total_return_pct)[0]
     : null;
-    
   const bestStratInfo = strategyRegistry.find(s => s.id === bestStrategy?.strategy_id);
 
   return (
     <main className="min-h-screen bg-[#050505] text-white p-6 md:p-10 pt-24 md:pt-28">
       <div className="max-w-7xl mx-auto">
+
+        {/* HEADER */}
         <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-6 mb-12">
           <div>
             <h1 className="text-4xl font-black tracking-tighter mb-2">Quant <span className="text-blue-500">Intelligence</span></h1>
             <p className="text-gray-500 font-mono text-[10px] uppercase tracking-widest italic">Statistical Validation Center</p>
           </div>
-          
           <div className="flex items-center gap-4">
-             <div className="flex items-center gap-3 bg-white/5 p-2 rounded-2xl border border-white/10">
-                <span className="text-[10px] font-bold text-gray-500 ml-4 uppercase tracking-widest">Asset</span>
-                <input 
-                  type="text" 
-                  value={selectedTicker} 
-                  onChange={(e) => setSelectedTicker(e.target.value.toUpperCase())}
-                  className="bg-black/40 border border-white/10 rounded-xl px-4 py-2 font-mono font-bold text-blue-400 w-24 focus:outline-none"
-                />
-             </div>
-             <button 
-               onClick={runAllTests}
-               disabled={isRunningAll}
-               className="bg-blue-600 hover:bg-blue-500 text-white px-6 py-4 rounded-2xl text-[10px] font-black tracking-widest shadow-xl shadow-blue-600/20 active:scale-95 disabled:opacity-50"
-             >
-               {isRunningAll ? 'SIMULATING ALL...' : 'RUN FULL SCAN'}
-             </button>
+            <div className="flex items-center gap-3 bg-white/5 p-2 rounded-2xl border border-white/10">
+              <span className="text-[10px] font-bold text-gray-500 ml-4 uppercase tracking-widest">Asset</span>
+              <input
+                type="text"
+                value={selectedTicker}
+                onChange={(e) => setSelectedTicker(e.target.value.toUpperCase())}
+                className="bg-black/40 border border-white/10 rounded-xl px-4 py-2 font-mono font-bold text-blue-400 w-24 focus:outline-none"
+              />
+            </div>
+            <button
+              onClick={runAllTests}
+              disabled={isRunningAll}
+              className="bg-blue-600 hover:bg-blue-500 text-white px-6 py-4 rounded-2xl text-[10px] font-black tracking-widest shadow-xl shadow-blue-600/20 active:scale-95 disabled:opacity-50 transition-all"
+            >
+              {isRunningAll ? 'RUNNING ALL...' : 'RUN ALL STRATEGIES'}
+            </button>
           </div>
         </div>
 
-        {bestStrategy && bestStrategy.metrics && (
+        {/* BEST STRATEGY BANNER */}
+        {bestStrategy && (
           <div className="mb-12 p-10 rounded-[3rem] bg-gradient-to-br from-blue-600/20 to-teal-500/10 border border-blue-500/30 backdrop-blur-2xl relative overflow-hidden">
-             <div className="absolute top-0 right-0 p-10 opacity-10">
-                <svg className="w-40 h-40" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" /></svg>
-             </div>
-             <div className="relative z-10">
-                <span className="text-[10px] font-black text-blue-400 uppercase tracking-[0.5em] mb-4 block">Recommended Screener Setting</span>
-                <h2 className="text-4xl font-black mb-4">
-                  For {selectedTicker}, Use <span className="text-blue-500">{bestStratInfo?.indicator}</span>
+            <div className="relative z-10 flex flex-col md:flex-row justify-between items-start gap-6">
+              <div>
+                <span className="text-[10px] font-black text-blue-400 uppercase tracking-[0.5em] mb-4 block">Best Strategy for {selectedTicker}</span>
+                <h2 className="text-3xl font-black mb-2">
+                  {bestStratInfo?.name} <span className="text-blue-500">wins</span>
                 </h2>
-                <p className="text-gray-400 max-w-2xl text-base leading-relaxed mb-8">
-                   Statistical evidence suggests that <span className="text-white font-bold">{bestStratInfo?.name}</span> is the superior model for this asset 
-                   with a <span className="text-green-400 font-black">{bestStrategy.metrics.win_rate}% success rate</span>.
+                <p className="text-gray-400 text-sm leading-relaxed">
+                  Return <span className="text-green-400 font-black">{bestStrategy.metrics.total_return_pct}%</span>
+                  {' · '}Win Rate <span className="text-blue-400 font-black">{bestStrategy.metrics.win_rate}%</span>
+                  {' · '}Max DD <span className="text-red-400 font-black">{bestStrategy.metrics.max_drawdown_pct}%</span>
                 </p>
-                <Link href={`/stocks/${selectedTicker}`} className="inline-flex items-center gap-3 bg-white text-black px-8 py-3 rounded-2xl text-[10px] font-black tracking-widest hover:bg-blue-400 hover:text-white transition-all shadow-xl shadow-white/5 uppercase">
-                   Switch to Trading Hub
-                   <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M14 5l7 7m0 0l-7 7m7-7H3" /></svg>
-                </Link>
-             </div>
+              </div>
+              <Link
+                href={`/stocks/${selectedTicker}`}
+                className="shrink-0 inline-flex items-center gap-3 bg-white text-black px-8 py-3 rounded-2xl text-[10px] font-black tracking-widest hover:bg-blue-400 hover:text-white transition-all uppercase"
+              >
+                Trade {selectedTicker}
+                <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M14 5l7 7m0 0l-7 7m7-7H3" /></svg>
+              </Link>
+            </div>
           </div>
         )}
 
+        {/* STRATEGY CARDS */}
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
           {strategyRegistry.map((strat) => {
             const res = results[strat.id];
             const isExpanded = expandedId === strat.id;
-            
+            const isBest = bestStrategy?.strategy_id === strat.id;
+
             return (
-              <div key={strat.id} className={`rounded-3xl border transition-all duration-300 ${isExpanded ? 'bg-white/5 border-blue-500/30 ring-1 ring-blue-500/20' : 'bg-white/[0.02] border-white/5 hover:bg-white/[0.04]'}`}>
+              <div
+                key={strat.id}
+                className={`rounded-3xl border transition-all duration-300 ${
+                  isBest
+                    ? 'bg-blue-600/10 border-blue-500/40 ring-1 ring-blue-500/20'
+                    : isExpanded
+                    ? 'bg-white/5 border-white/10'
+                    : 'bg-white/[0.02] border-white/5 hover:bg-white/[0.04]'
+                }`}
+              >
                 <div className="p-8">
-                  <div className="flex justify-between items-start mb-6">
+                  {/* Card Header */}
+                  <div className="flex justify-between items-start mb-4">
                     <div>
                       <p className="text-[9px] font-bold text-gray-500 uppercase tracking-widest mb-1">{strat.indicator}</p>
-                      <h3 className="text-2xl font-black tracking-tight">{strat.name}</h3>
+                      <h3 className="text-xl font-black tracking-tight">
+                        {strat.name}
+                        {isBest && <span className="ml-2 text-[8px] bg-blue-500 text-black px-2 py-0.5 rounded-full uppercase font-black">BEST</span>}
+                      </h3>
                     </div>
-                    <div className="flex items-center gap-4">
+                    <div className="flex items-center gap-3">
                       {res?.metrics && (
-                        <span className={`text-xl font-mono font-black ${res.metrics.win_rate >= 50 ? 'text-green-400' : 'text-red-400'}`}>
-                          {res.metrics.win_rate}%
+                        <span className={`text-lg font-mono font-black ${res.metrics.total_return_pct >= 0 ? 'text-green-400' : 'text-red-400'}`}>
+                          {res.metrics.total_return_pct >= 0 ? '+' : ''}{res.metrics.total_return_pct}%
                         </span>
                       )}
-                      <button 
-                        onClick={() => setExpandedId(isExpanded ? null : strat.id)}
-                        className="p-2 rounded-full hover:bg-white/10 transition-colors"
-                      >
-                        <svg className={`w-5 h-5 text-gray-500 transition-transform ${isExpanded ? 'rotate-180' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-                        </svg>
-                      </button>
+                      {res?.metrics && (
+                        <button onClick={() => setExpandedId(isExpanded ? null : strat.id)} className="p-2 rounded-full hover:bg-white/10 transition-colors">
+                          <svg className={`w-4 h-4 text-gray-500 transition-transform ${isExpanded ? 'rotate-180' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                          </svg>
+                        </button>
+                      )}
                     </div>
                   </div>
 
-                  <p className="text-sm text-gray-500 leading-relaxed mb-6">{strat.description}</p>
+                  <p className="text-xs text-gray-500 leading-relaxed mb-5">{strat.description}</p>
 
-                  <div className="flex gap-4">
-                    <button 
-                      onClick={() => runSingleTest(strat.id)}
-                      disabled={!!loading}
-                      className="bg-white/5 hover:bg-blue-600 border border-white/10 px-6 py-2.5 rounded-xl text-[9px] font-black tracking-widest transition-all"
-                    >
-                      {loading === strat.id ? 'TESTING...' : 'RUN TEST'}
-                    </button>
+                  {/* Rules */}
+                  <div className="space-y-1.5 mb-5">
+                    {strat.rules.map((rule, i) => (
+                      <div key={i} className="flex items-center gap-2 text-[10px] font-mono">
+                        <div className={`w-1 h-1 rounded-full ${rule.startsWith('ENTRY') ? 'bg-green-500' : 'bg-red-500'}`} />
+                        <span className={rule.startsWith('ENTRY') ? 'text-green-400/70' : 'text-red-400/70'}>{rule}</span>
+                      </div>
+                    ))}
                   </div>
 
-                  {/* EXPANDED CONTENT: RULES & LOGIC */}
-                  {isExpanded && (
-                    <div className="mt-8 pt-8 border-t border-white/10 animate-in fade-in slide-in-from-top-4">
-                       <h4 className="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-4">Execution Rules & Intelligence</h4>
-                       <div className="space-y-3">
-                          {strat.rules.map((rule, i) => (
-                            <div key={i} className="flex items-center gap-3 text-xs font-mono">
-                               <div className="w-1.5 h-1.5 rounded-full bg-blue-500/50"></div>
-                               <span className={rule.startsWith('ENTRY') ? 'text-green-400' : rule.startsWith('EXIT') ? 'text-red-400' : 'text-gray-400 italic'}>
-                                 {rule}
-                               </span>
-                            </div>
-                          ))}
-                       </div>
-                       
-                       {res?.metrics && (
-                         <div className="mt-8 grid grid-cols-3 gap-4 border-t border-white/5 pt-8">
-                            <div className="text-center">
-                              <p className="text-[8px] text-gray-600 font-bold uppercase mb-1">Trades</p>
-                              <p className="text-sm font-bold font-mono">{res.metrics.total_trades}</p>
-                            </div>
-                            <div className="text-center">
-                              <p className="text-[8px] text-gray-600 font-bold uppercase mb-1">Return</p>
-                              <p className={`text-sm font-bold font-mono ${res.metrics.total_return_pct >= 0 ? 'text-blue-400' : 'text-red-400'}`}>
-                                {res.metrics.total_return_pct}%
-                              </p>
-                            </div>
-                            <div className="text-center">
-                              <p className="text-[8px] text-gray-600 font-bold uppercase mb-1">Win/Loss</p>
-                              <p className="text-sm font-bold font-mono text-gray-400">{res.metrics.wins}/{res.metrics.losses}</p>
-                            </div>
-                         </div>
-                       )}
+                  <button
+                    onClick={() => runSingleTest(strat.id)}
+                    disabled={!!loading || isRunningAll}
+                    className="bg-white/5 hover:bg-blue-600 border border-white/10 px-5 py-2 rounded-xl text-[9px] font-black tracking-widest transition-all disabled:opacity-40"
+                  >
+                    {loading === strat.id ? 'RUNNING...' : res?.metrics ? 'RE-RUN' : 'RUN TEST'}
+                  </button>
+
+                  {/* EXPANDED: Metrics + Chart + Trades */}
+                  {isExpanded && res?.metrics && (
+                    <div className="mt-8 pt-8 border-t border-white/10 space-y-8">
+
+                      {/* Metrics Row */}
+                      <div className="grid grid-cols-3 sm:grid-cols-6 gap-3">
+                        {[
+                          { label: 'Return', value: `${res.metrics.total_return_pct}%`, color: res.metrics.total_return_pct >= 0 ? 'text-green-400' : 'text-red-400' },
+                          { label: 'Win Rate', value: `${res.metrics.win_rate}%`, color: res.metrics.win_rate >= 50 ? 'text-blue-400' : 'text-orange-400' },
+                          { label: 'Trades', value: res.metrics.total_trades, color: 'text-white' },
+                          { label: 'Wins', value: res.metrics.wins, color: 'text-green-400' },
+                          { label: 'Losses', value: res.metrics.losses, color: 'text-red-400' },
+                          { label: 'Max DD', value: `-${res.metrics.max_drawdown_pct}%`, color: 'text-orange-400' },
+                        ].map(({ label, value, color }) => (
+                          <div key={label} className="bg-white/[0.03] rounded-2xl p-3 text-center">
+                            <p className="text-[8px] text-gray-600 font-black uppercase tracking-widest mb-1">{label}</p>
+                            <p className={`text-sm font-black font-mono ${color}`}>{value}</p>
+                          </div>
+                        ))}
+                      </div>
+
+                      {/* Equity Curve */}
+                      {res.equity_curve && res.equity_curve.length > 1 && (
+                        <div>
+                          <p className="text-[9px] font-black text-gray-500 uppercase tracking-widest mb-3">Equity Curve</p>
+                          <div className="rounded-2xl overflow-hidden bg-black/20">
+                            <EquityChart data={res.equity_curve} color="#3b82f6" height={200} />
+                          </div>
+                          <div className="flex justify-between text-[9px] font-mono text-gray-600 mt-2 px-1">
+                            <span>Initial: Rp {res.metrics.initial_capital.toLocaleString('id-ID')}</span>
+                            <span className={res.metrics.final_value >= res.metrics.initial_capital ? 'text-green-400' : 'text-red-400'}>
+                              Final: Rp {res.metrics.final_value.toLocaleString('id-ID')}
+                            </span>
+                          </div>
+                        </div>
+                      )}
+
+                      {/* Trade Log */}
+                      {res.trades && res.trades.length > 0 && (
+                        <div>
+                          <p className="text-[9px] font-black text-gray-500 uppercase tracking-widest mb-3">
+                            Trade Log — {res.trades.length} trades
+                          </p>
+                          <div className="max-h-48 overflow-y-auto custom-scrollbar space-y-1.5">
+                            {res.trades.map((t, i) => (
+                              <div key={i} className="flex justify-between items-center text-[10px] font-mono bg-white/[0.02] rounded-xl px-4 py-2">
+                                <span className="text-gray-500">{t.date}</span>
+                                <span className={`font-black ${t.type === 'BUY' ? 'text-green-400' : 'text-red-400'}`}>{t.type}</span>
+                                <span>Rp {t.price.toLocaleString('id-ID')}</span>
+                                {t.pnl !== undefined && (
+                                  <span className={`font-black ${t.pnl >= 0 ? 'text-green-400' : 'text-red-400'}`}>
+                                    {t.pnl >= 0 ? '+' : ''}Rp {Math.abs(t.pnl).toLocaleString('id-ID', { maximumFractionDigits: 0 })}
+                                    {' '}
+                                    <span className="text-[9px]">({t.pnl_pct?.toFixed(1)}%)</span>
+                                  </span>
+                                )}
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      )}
                     </div>
                   )}
                 </div>
@@ -184,6 +234,11 @@ export default function BacktestPage() {
           })}
         </div>
       </div>
+
+      <style jsx>{`
+        .custom-scrollbar::-webkit-scrollbar { width: 4px; }
+        .custom-scrollbar::-webkit-scrollbar-thumb { background: #333; border-radius: 10px; }
+      `}</style>
     </main>
   );
 }

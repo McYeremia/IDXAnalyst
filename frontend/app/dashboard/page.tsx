@@ -202,6 +202,9 @@ export default function Dashboard() {
                       <p className="text-[8px] font-mono text-gray-700 uppercase mb-1 font-black">Quote Value</p>
                       <p className="text-sm font-bold font-mono">Rp {stock.last_price?.toLocaleString('id-ID')}</p>
                    </div>
+                   {stock.last_date && (
+                     <p className="text-[8px] font-mono text-gray-700">{stock.last_date}</p>
+                   )}
                 </div>
               </Link>
             );
