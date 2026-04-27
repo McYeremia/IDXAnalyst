@@ -9,7 +9,9 @@
       "Bash(python -c ' *)",
       "Bash(python *)",
       "Bash(./venv/Scripts/python.exe -c ' *)",
-      "Bash(timeout 120 ./venv/Scripts/python.exe -c ' *)"
+      "Bash(timeout 120 ./venv/Scripts/python.exe -c ' *)",
+      "mcp__IDXAnalyst__analyze_stock",
+      "mcp__IDXAnalyst__execute_ai_trade"
     ]
   },
   "enableAllProjectMcpServers": true,

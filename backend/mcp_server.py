@@ -193,20 +193,91 @@ def ai_smart_trade_scan_and_execute(agent_name: str, max_trades: int = 3) -> str
     Scan the entire market and auto-execute trades for the specified agent.
     For each stock, finds the best-performing strategy via backtest and executes
     if that strategy's signal is active today.
+    Checks available cash before buying. Also sells positions where exit signal triggers.
     - agent_name: CLAUDE or GEMINI
     - max_trades: cap on executions per run (default 3)
     """
     db = SessionLocal()
     agent_name = agent_name.upper()
-    stocks = db.query(models.Stock).all()
+    INITIAL_MODAL = 15_000_000
+    MAX_POSITION_PCT = 0.25  # max 25% of modal per position
 
+    stocks = db.query(models.Stock).filter(models.Stock.ticker != "^JKSE").all()
     executed = []
+    sold = []
 
-    for stock in stocks:
-        if stock.ticker == "^JKSE" or len(executed) >= max_trades:
+    # --- Build current holdings for this agent ---
+    all_trades = db.query(models.TradeLog).order_by(models.TradeLog.date).all()
+    holdings: Dict[str, dict] = {}
+    for t in all_trades:
+        raw_type = t.trade_type.upper()
+        if agent_name == "CLAUDE" and "CLAUDE" not in raw_type: continue
+        if agent_name == "GEMINI" and "GEMINI" not in raw_type: continue
+        if agent_name == "USER": continue
+
+        ticker = t.stock.ticker
+        if ticker not in holdings:
+            holdings[ticker] = {"shares": 0, "avg_price": 0.0, "realized": 0.0}
+        data = holdings[ticker]
+        qty = t.quantity * 100
+        if t.action == "BUY":
+            total_cost = data["shares"] * data["avg_price"] + qty * t.price
+            data["shares"] += qty
+            data["avg_price"] = total_cost / data["shares"] if data["shares"] > 0 else 0.0
+        else:
+            data["realized"] += (t.price - data["avg_price"]) * qty
+            data["shares"] -= qty
+
+    total_invested = sum(d["avg_price"] * d["shares"] for d in holdings.values() if d["shares"] > 0)
+    total_realized = sum(d["realized"] for d in holdings.values())
+    liquid_cash = INITIAL_MODAL - total_invested + total_realized
+
+    # --- SELL PHASE: check exit signals for existing positions ---
+    for ticker, data in holdings.items():
+        if data["shares"] <= 0:
+            continue
+        stock = db.query(models.Stock).filter(models.Stock.ticker == ticker).first()
+        if not stock:
+            continue
+        df = _build_indicator_df(db, stock.id)
+        if df.empty:
             continue
 
-        # Find best strategy via backtest
+        # Find the strategy that was used for this holding (approximate: best strategy now)
+        best_strat = None
+        best_wr = 0.0
+        for strat_id in ALL_STRATEGIES:
+            res = bt_svc.run_backtest(db, stock.ticker, strat_id)
+            wr = res.get("metrics", {}).get("win_rate", 0.0)
+            if wr > best_wr:
+                best_wr = wr
+                best_strat = strat_id
+
+        if best_strat:
+            from services.watcher import check_strategy_exit
+            curr = df.iloc[-1]
+            curr_price = float(curr["close"])
+            stop_loss_pct = -0.07  # 7% stop loss
+            unrealized_pct = (curr_price - data["avg_price"]) / data["avg_price"]
+
+            should_sell = check_strategy_exit(df, best_strat) or unrealized_pct <= stop_loss_pct
+            if should_sell:
+                lots = data["shares"] // 100
+                reason = "Stop loss triggered" if unrealized_pct <= stop_loss_pct else f"Exit signal: {best_strat}"
+                pnl = (curr_price - data["avg_price"]) * data["shares"]
+                execute_ai_trade(ticker, "SELL", lots, agent_name, reason)
+                liquid_cash += curr_price * data["shares"]
+                sold.append(f"SELL {ticker} {lots} lot @ Rp {curr_price:,.0f} | P&L: Rp {pnl:,.0f} | {reason}")
+
+    # --- BUY PHASE: scan for entry signals ---
+    for stock in stocks:
+        if len(executed) >= max_trades:
+            break
+        if liquid_cash < 500_000:  # minimum kas
+            break
+        if holdings.get(stock.ticker, {}).get("shares", 0) > 0:
+            continue  # already holding, skip
+
         best_win_rate = 0.0
         best_strat_id = None
         for strat_id in ALL_STRATEGIES:
@@ -216,7 +287,7 @@ def ai_smart_trade_scan_and_execute(agent_name: str, max_trades: int = 3) -> str
                 best_win_rate = wr
                 best_strat_id = strat_id
 
-        if not best_strat_id or best_win_rate <= 50:
+        if not best_strat_id or best_win_rate <= 55:
             continue
 
         df = _build_indicator_df(db, stock.id)
@@ -225,23 +296,39 @@ def ai_smart_trade_scan_and_execute(agent_name: str, max_trades: int = 3) -> str
 
         if check_strategy_active(df, best_strat_id):
             curr_price = float(df.iloc[-1]["close"])
-            result = execute_ai_trade(
-                stock.ticker,
-                "BUY",
-                10,
-                agent_name,
-                f"Auto via {best_strat_id} (WR: {best_win_rate:.1f}%)",
+            max_spend = min(liquid_cash * MAX_POSITION_PCT, INITIAL_MODAL * MAX_POSITION_PCT)
+            lots = max(1, int(max_spend // (curr_price * 100)))
+            cost = lots * curr_price * 100
+
+            if cost > liquid_cash:
+                lots = max(1, int(liquid_cash // (curr_price * 100)))
+                cost = lots * curr_price * 100
+
+            if lots < 1 or cost > liquid_cash:
+                continue
+
+            execute_ai_trade(
+                stock.ticker, "BUY", lots, agent_name,
+                f"Strategy: {best_strat_id} (WR: {best_win_rate:.1f}%) | Signal active"
             )
+            liquid_cash -= cost
             executed.append(
-                f"{stock.ticker} [{best_strat_id}, WR:{best_win_rate:.0f}%] @ Rp {curr_price:,.0f}"
+                f"BUY {stock.ticker} {lots} lot @ Rp {curr_price:,.0f} | Cost: Rp {cost:,.0f} | {best_strat_id} WR:{best_win_rate:.0f}%"
             )
 
     db.close()
 
+    lines = []
+    if sold:
+        lines.append(f"SELLS ({len(sold)}):")
+        lines += [f"  - {s}" for s in sold]
     if executed:
-        lines = "\n".join(f"  - {e}" for e in executed)
-        return f"SCAN COMPLETE: {agent_name} executed {len(executed)} trade(s):\n{lines}"
-    return f"SCAN COMPLETE: {agent_name} found no high-probability signals across {len(stocks)} stocks."
+        lines.append(f"BUYS ({len(executed)}):")
+        lines += [f"  - {e}" for e in executed]
+    if not sold and not executed:
+        return f"SCAN COMPLETE: {agent_name} — no signals triggered. Liquid cash: Rp {liquid_cash:,.0f}"
+
+    return "SCAN COMPLETE:\n" + "\n".join(lines)
 
 
 @mcp.tool()
@@ -319,15 +406,27 @@ def get_portfolio_summary(agent_name: str) -> str:
                 "realized_pnl": round(data["realized_pnl"], 2),
             })
 
+        INITIAL_MODAL = 15_000_000
+        total_invested = sum(
+            p["avg_buy_price"] * p["shares"] for p in positions if p["shares"] > 0
+        )
+        liquid_cash = INITIAL_MODAL - total_invested + total_realized
+        total_value = liquid_cash + sum(p["market_value"] for p in positions if p["shares"] > 0)
+
         result = {
             "agent": agent_name,
             "summary": {
+                "initial_modal": INITIAL_MODAL,
+                "liquid_cash": round(liquid_cash, 2),
+                "total_invested": round(total_invested, 2),
+                "total_value": round(total_value, 2),
                 "open_positions": len([p for p in positions if p["shares"] > 0]),
                 "total_unrealized_pnl": round(total_unrealized, 2),
                 "total_realized_pnl": round(total_realized, 2),
                 "total_pnl": round(total_unrealized + total_realized, 2),
             },
-            "positions": positions,
+            "positions": [p for p in positions if p["shares"] > 0],
+            "closed_positions": [p for p in positions if p["shares"] <= 0 and p["realized_pnl"] != 0],
         }
         return json.dumps(result, indent=2)
     finally:

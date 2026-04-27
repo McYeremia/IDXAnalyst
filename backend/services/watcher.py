@@ -95,6 +95,111 @@ def screen_by_strategy(db: Session, strategy_id: str):
             
     return matches
 
+def check_strategy_exit(df: pd.DataFrame, strategy_id: str) -> bool:
+    """Returns True if the exit condition for the given strategy is met."""
+    if df.empty or len(df) < 2: return False
+    curr = df.iloc[-1]
+    prev = df.iloc[-2]
+    price = curr['close']
+
+    try:
+        if strategy_id == "triple-confirmation":
+            return curr['rsi'] > 70 or price < curr['ma20']
+        if strategy_id == "volatility-sniper":
+            return price > curr['bb_high']
+        if strategy_id == "institutional-trend":
+            return curr['ema12'] < curr['ema26']
+        if strategy_id == "exhaustion-play":
+            return curr['rsi'] > 60
+        if strategy_id == "trend-accelerator":
+            return curr['macd_hist'] < 0
+        if strategy_id == "pure-momentum":
+            return curr['macd_line'] < curr['macd_sig']
+        if strategy_id == "defensive-bull":
+            return curr['ma50'] < curr['ma200']
+        if strategy_id == "stoch-rsi-hybrid":
+            return curr['stoch_k'] > 80 or curr['rsi'] > 70
+        if strategy_id == "rsi-reversion":
+            return curr['rsi'] > 70
+        if strategy_id == "ma-cross":
+            return curr['ma20'] < curr['ma50']
+    except:
+        return False
+    return False
+
+
 def scan_market_signals():
-    # ... (Keep automated scan logic if needed)
-    pass
+    """Scan all stocks for active buy signals and save to Signal table."""
+    from database import SessionLocal
+    from sqlalchemy import func
+    import models as mdl
+    from datetime import datetime
+
+    db = SessionLocal()
+    count = 0
+    try:
+        stocks = db.query(mdl.Stock).filter(mdl.Stock.ticker != "^JKSE").all()
+        for stock in stocks:
+            rows = db.query(mdl.OHLCVDaily).filter(
+                mdl.OHLCVDaily.stock_id == stock.id
+            ).order_by(mdl.OHLCVDaily.date).all()
+
+            if not rows or len(rows) < 50:
+                continue
+
+            df = pd.DataFrame([{
+                "close": r.close, "high": r.high, "low": r.low, "volume": r.volume
+            } for r in rows])
+
+            close = df['close']
+            df['rsi'] = ta_lib.momentum.RSIIndicator(close).rsi()
+            df['ma20'] = ta_lib.trend.SMAIndicator(close, window=20).sma_indicator()
+            df['ma50'] = ta_lib.trend.SMAIndicator(close, window=50).sma_indicator()
+            df['ma200'] = ta_lib.trend.SMAIndicator(close, window=200).sma_indicator()
+            df['ema12'] = ta_lib.trend.EMAIndicator(close, window=12).ema_indicator()
+            df['ema26'] = ta_lib.trend.EMAIndicator(close, window=26).ema_indicator()
+            macd = ta_lib.trend.MACD(close)
+            df['macd_line'] = macd.macd()
+            df['macd_sig'] = macd.macd_signal()
+            df['macd_hist'] = macd.macd_diff()
+            bb = ta_lib.volatility.BollingerBands(close)
+            df['bb_low'] = bb.bollinger_lband()
+            df['bb_high'] = bb.bollinger_hband()
+            stoch = ta_lib.momentum.StochasticOscillator(df['high'], df['low'], close)
+            df['stoch_k'] = stoch.stoch()
+            df['vol_ma20'] = ta_lib.trend.SMAIndicator(df['volume'], window=20).sma_indicator()
+
+            curr = df.iloc[-1]
+            active = [s for s in [
+                "triple-confirmation", "volatility-sniper", "institutional-trend",
+                "exhaustion-play", "trend-accelerator", "pure-momentum",
+                "defensive-bull", "stoch-rsi-hybrid", "rsi-reversion", "ma-cross"
+            ] if check_strategy_active(df, s)]
+
+            for strategy_id in active:
+                rsi = float(curr['rsi'])
+                strength = max(0, min(100, round(
+                    (30 - rsi) / 30 * 60 + 40 if rsi < 30 else
+                    (45 - rsi) / 45 * 40 + 20 if rsi < 45 else 30
+                )))
+
+                sig = mdl.Signal(
+                    stock_id=stock.id,
+                    strategy_id=strategy_id,
+                    type="BUY",
+                    price=float(curr['close']),
+                    strength=strength,
+                    description=f"{strategy_id} signal active | RSI:{rsi:.1f} | MACD:{float(curr['macd_hist']):.4f}",
+                    created_at=datetime.now(),
+                )
+                db.add(sig)
+                count += 1
+
+        db.commit()
+    except Exception as e:
+        db.rollback()
+        print(f"Scan error: {e}")
+    finally:
+        db.close()
+
+    return count

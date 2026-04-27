@@ -23,8 +23,9 @@ export default function Dashboard() {
   const [ihsgData, setIhsgData] = useState<OHLCV[]>([]);
   const [loading, setLoading] = useState(true);
   const [isScanning, setIsRunningScan] = useState(false);
+  const [isSyncing, setIsSyncing] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
-  
+
   const [newTicker, setNewTicker] = useState('');
   const [isAdding, setIsAdding] = useState(false);
 
@@ -62,6 +63,18 @@ export default function Dashboard() {
       alert("Scan failed.");
     } finally {
       setIsRunningScan(false);
+    }
+  };
+
+  const handleSync = async () => {
+    setIsSyncing(true);
+    try {
+      await api.refreshData();
+      await loadData();
+    } catch (err) {
+      alert("Sync failed.");
+    } finally {
+      setIsSyncing(false);
     }
   };
 
@@ -118,9 +131,14 @@ export default function Dashboard() {
              <div className="bg-gradient-to-br from-teal-600/10 to-transparent border border-teal-500/20 rounded-[2.5rem] p-8 flex-1 flex flex-col">
                 <div className="flex justify-between items-center mb-6">
                    <h2 className="text-[10px] font-black text-teal-400 uppercase tracking-[0.4em]">AI Intelligence Signals</h2>
-                   <button onClick={handleScan} disabled={isScanning} className="bg-teal-500 hover:bg-teal-400 text-black px-4 py-1.5 rounded-full text-[8px] font-black tracking-widest uppercase disabled:opacity-50">
-                      {isScanning ? 'SCANNING...' : 'AUTO SCAN'}
-                   </button>
+                   <div className="flex gap-2">
+                     <button onClick={handleSync} disabled={isSyncing} className="bg-white/10 hover:bg-white/20 text-white px-3 py-1.5 rounded-full text-[8px] font-black tracking-widest uppercase disabled:opacity-50 transition-all">
+                       {isSyncing ? 'SYNCING...' : '⟳ SYNC'}
+                     </button>
+                     <button onClick={handleScan} disabled={isScanning} className="bg-teal-500 hover:bg-teal-400 text-black px-4 py-1.5 rounded-full text-[8px] font-black tracking-widest uppercase disabled:opacity-50 transition-all">
+                       {isScanning ? 'SCANNING...' : 'AUTO SCAN'}
+                     </button>
+                   </div>
                 </div>
                 <div className="flex-1 overflow-y-auto max-h-[220px] custom-scrollbar pr-2">
                    {signals.length === 0 ? (
