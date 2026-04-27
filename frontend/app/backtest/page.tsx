@@ -10,6 +10,7 @@ const EquityChart = dynamic(() => import('@/components/EquityChart'), { ssr: fal
 
 export default function BacktestPage() {
   const [results, setResults] = useState<Record<string, BacktestResult>>({});
+  const [errors, setErrors] = useState<Record<string, string>>({});
   const [loading, setLoading] = useState<string | null>(null);
   const [selectedTicker, setSelectedTicker] = useState('BBCA');
   const [capitalInput, setCapitalInput] = useState('10000000');
@@ -27,14 +28,17 @@ export default function BacktestPage() {
 
   const runSingleTest = async (strategyId: string) => {
     setLoading(strategyId);
+    setErrors(prev => { const n = {...prev}; delete n[strategyId]; return n; });
     try {
       const res = await api.runBacktest(selectedTicker, strategyId, parsedCapital);
-      if (!('error' in res)) {
+      if ('error' in res) {
+        setErrors(prev => ({ ...prev, [strategyId]: (res as any).error }));
+      } else {
         setResults(prev => ({ ...prev, [strategyId]: res }));
         setExpandedId(strategyId);
       }
     } catch (err) {
-      console.error(err);
+      setErrors(prev => ({ ...prev, [strategyId]: 'Gagal terhubung ke server' }));
     } finally {
       setLoading(null);
     }
@@ -72,7 +76,7 @@ export default function BacktestPage() {
               <input
                 type="text"
                 value={selectedTicker}
-                onChange={(e) => { setSelectedTicker(e.target.value.toUpperCase()); setResults({}); }}
+                onChange={(e) => { setSelectedTicker(e.target.value.toUpperCase()); setResults({}); setErrors({}); }}
                 className="bg-black/40 border border-white/10 rounded-xl px-4 py-2 font-mono font-bold text-blue-400 w-24 focus:outline-none"
               />
             </div>
@@ -85,7 +89,7 @@ export default function BacktestPage() {
                 <input
                   type="text"
                   value={capitalInput}
-                  onChange={(e) => { setCapitalInput(e.target.value); setResults({}); }}
+                  onChange={(e) => { setCapitalInput(e.target.value); setResults({}); setErrors({}); }}
                   className="bg-black/40 border border-white/10 rounded-xl px-3 py-1.5 font-mono font-bold text-green-400 w-36 focus:outline-none text-sm"
                   placeholder="10000000"
                 />
@@ -193,6 +197,13 @@ export default function BacktestPage() {
                     {loading === strat.id ? 'RUNNING...' : res?.metrics ? 'RE-RUN' : 'RUN TEST'}
                   </button>
 
+                  {errors[strat.id] && (
+                    <div className="mt-3 flex items-start gap-2 bg-red-500/10 border border-red-500/20 rounded-xl px-4 py-3">
+                      <span className="text-red-400 text-lg leading-none">⚠</span>
+                      <p className="text-[10px] text-red-400/80 font-mono leading-relaxed">{errors[strat.id]}</p>
+                    </div>
+                  )}
+
                   {/* EXPANDED: Metrics + Chart + Trades */}
                   {isExpanded && res?.metrics && (
                     <div className="mt-8 pt-8 border-t border-white/10 space-y-8">
@@ -234,7 +245,7 @@ export default function BacktestPage() {
                       {res.trades && res.trades.length > 0 && (
                         <div>
                           <p className="text-[9px] font-black text-gray-500 uppercase tracking-widest mb-3">
-                            Trade Log — {res.trades.length} transaksi
+                            Trade Log — {res.trades.filter(t => t.type === 'BUY').length} beli · {res.trades.filter(t => t.type === 'SELL').length} jual
                           </p>
                           <div className="max-h-64 overflow-y-auto custom-scrollbar">
                             <table className="w-full text-[9px] font-mono">

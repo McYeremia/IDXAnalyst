@@ -10,8 +10,19 @@ def run_backtest(db: Session, stock_ticker: str, strategy_id: str, initial_capit
     stock = db.query(models.Stock).filter(models.Stock.ticker == stock_ticker).first()
     if not stock: return {"error": "Stock not found"}
 
+    # Minimum data per strategi (beberapa tidak butuh MA200)
+    MIN_DATA = {
+        "defensive-bull": 200, "institutional-trend": 200,
+        "triple-confirmation": 60, "ma-cross": 60,
+        "trend-accelerator": 60, "pure-momentum": 60,
+        "volatility-sniper": 40, "exhaustion-play": 40,
+        "stoch-rsi-hybrid": 40, "rsi-reversion": 40,
+    }
+    min_required = MIN_DATA.get(strategy_id, 60)
+
     df = ind_svc.get_ohlcv_df(db, stock.id)
-    if df.empty or len(df) < 200: return {"error": "Insufficient data"}
+    if df.empty or len(df) < min_required:
+        return {"error": f"Insufficient data: {len(df) if not df.empty else 0} hari tersedia, butuh minimal {min_required} hari untuk strategi {strategy_id}"}
 
     close = df['close']
     high = df['high']
@@ -180,5 +191,5 @@ def run_backtest(db: Session, stock_ticker: str, strategy_id: str, initial_capit
             "final_value": round(equity_curve[-1]['value'], 2),
         },
         "equity_curve": sampled_curve,
-        "trades": closed_trades,
+        "trades": trades,  # semua trade: BUY + SELL
     }

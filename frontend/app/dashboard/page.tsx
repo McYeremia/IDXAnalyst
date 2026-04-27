@@ -10,9 +10,8 @@ const StockChart = dynamic(() => import("@/components/StockChart"), { ssr: false
 interface Signal {
   ticker: string;
   type: string;
-  strategy: string;
-  description: string;
-  strength: number;
+  strategies: string[];
+  max_strength: number;
   date: string;
 }
 
@@ -149,11 +148,15 @@ export default function Dashboard() {
                      <div className="space-y-3">
                         {signals.map((sig, i) => (
                           <Link href={`/stocks/${sig.ticker}`} key={i} className="block group bg-white/5 border border-white/5 hover:border-teal-500/30 p-4 rounded-2xl transition-all">
-                             <div className="flex justify-between items-center mb-1">
+                             <div className="flex justify-between items-center mb-2">
                                 <span className="text-sm font-black group-hover:text-teal-400 transition-colors">{sig.ticker}</span>
-                                <span className="text-[8px] font-black bg-teal-500 text-black px-2 py-0.5 rounded uppercase tracking-tighter">{sig.strength}%</span>
+                                <span className="text-[8px] font-black bg-teal-500 text-black px-2 py-0.5 rounded uppercase tracking-tighter">{sig.max_strength}%</span>
                              </div>
-                             <p className="text-[10px] text-gray-400 line-clamp-1 italic">{sig.description}</p>
+                             <div className="flex flex-wrap gap-1">
+                                {sig.strategies.map((strategy, j) => (
+                                  <span key={j} className="text-[7px] font-bold bg-white/10 text-gray-300 px-1.5 py-0.5 rounded uppercase tracking-tight">{strategy}</span>
+                                ))}
+                             </div>
                           </Link>
                         ))}
                      </div>

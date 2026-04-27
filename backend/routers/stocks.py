@@ -42,18 +42,25 @@ def list_stocks(db: Session = Depends(get_db)):
 # Static paths must come BEFORE parameterized /{ticker} routes
 @router.get("/signals")
 def get_ai_signals(db: Session = Depends(get_db)):
-    signals = db.query(models.Signal).order_by(desc(models.Signal.created_at)).limit(20).all()
-    result = []
+    signals = db.query(models.Signal).order_by(desc(models.Signal.created_at)).all()
+    grouped: dict = {}
     for s in signals:
-        result.append({
-            "ticker": s.stock.ticker,
-            "type": s.type,
-            "strategy": s.strategy_id,
-            "description": s.description,
-            "strength": s.strength,
-            "date": s.created_at.strftime("%Y-%m-%d %H:%M")
-        })
-    return result
+        ticker = s.stock.ticker
+        if ticker not in grouped:
+            grouped[ticker] = {
+                "ticker": ticker,
+                "type": s.type,
+                "strategies": [],
+                "max_strength": 0,
+                "date": s.created_at.strftime("%Y-%m-%d %H:%M"),
+            }
+        grouped[ticker]["strategies"].append(s.strategy_id)
+        if s.strength > grouped[ticker]["max_strength"]:
+            grouped[ticker]["max_strength"] = s.strength
+    return [
+        g for g in sorted(grouped.values(), key=lambda x: x["max_strength"], reverse=True)
+        if g["max_strength"] >= 80
+    ]
 
 
 @router.post("/refresh")

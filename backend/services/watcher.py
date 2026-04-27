@@ -19,6 +19,71 @@ def _f(val, default: float = 0.0) -> float:
         return default
 
 
+def _compute_strength(curr, strategy_id: str) -> int:
+    """
+    Multi-factor signal strength 0–100 (strategy-aware, quadratic scaling).
+
+    Setiap strategi menggunakan indikator yang relevan:
+    - Oversold strategies (rsi-reversion, exhaustion-play, volatility-sniper):
+      RSI depth + stochastic + BB distance below lower band
+    - Momentum strategies (triple-confirmation, stoch-rsi-hybrid):
+      RSI + MACD magnitude + volume surge
+    - Trend strategies (trend-accelerator, pure-momentum, institutional-trend,
+      defensive-bull, ma-cross):
+      MACD magnitude + volume surge
+
+    Quadratic scaling: rsi_os(30) = 1 - (rsi/30)^2
+      RSI=25 → 0.31,  RSI=20 → 0.56,  RSI=15 → 0.75,  RSI=10 → 0.89
+    Sehingga sinyal yang benar-benar oversold dalam dapat menembus 80%.
+    """
+    try:
+        rsi       = _f(curr.get('rsi'),       50.0)
+        macd_hist = _f(curr.get('macd_hist'),  0.0)
+        stoch_k   = _f(curr.get('stoch_k'),   50.0)
+        close     = _f(curr.get('close'),       1.0)
+        bb_low    = _f(curr.get('bb_low'),    close)
+        vol       = _f(curr.get('volume'),      0.0)
+        vol_ma20  = _f(curr.get('vol_ma20'),    1.0)
+
+        def rsi_os(lim):
+            return max(0.0, 1.0 - (rsi / lim) ** 2) if rsi < lim else 0.0
+
+        def stoch_os(lim):
+            return max(0.0, 1.0 - (stoch_k / lim) ** 2) if stoch_k < lim else 0.0
+
+        def bb_below():
+            if bb_low > 0 and close < bb_low:
+                return min(1.0, (bb_low - close) / bb_low / 0.04)
+            return 0.0
+
+        def vol_s():
+            return min(1.0, max(0.0, (vol / vol_ma20 - 1.0) / 2.0)) if vol_ma20 > 0 else 0.0
+
+        def macd_s():
+            # Normalize MACD relative to price; 0.15% of close = full score
+            return min(1.0, macd_hist / close * 667) if macd_hist > 0 and close > 0 else 0.0
+
+        if strategy_id == "rsi-reversion":
+            s = rsi_os(30) * 70 + vol_s() * 30
+        elif strategy_id == "exhaustion-play":
+            s = rsi_os(25) * 40 + stoch_os(15) * 35 + bb_below() * 25
+        elif strategy_id == "volatility-sniper":
+            s = bb_below() * 45 + stoch_os(20) * 40 + vol_s() * 15
+        elif strategy_id == "triple-confirmation":
+            s = rsi_os(45) * 40 + macd_s() * 40 + vol_s() * 20
+        elif strategy_id == "stoch-rsi-hybrid":
+            rsi_conf = min(1.0, max(0.0, (rsi - 30) / 30)) if rsi > 30 else 0.0
+            s = rsi_conf * 60 + vol_s() * 40
+        elif strategy_id in ("trend-accelerator", "pure-momentum"):
+            s = macd_s() * 55 + vol_s() * 45
+        else:  # institutional-trend, defensive-bull, ma-cross
+            s = macd_s() * 60 + vol_s() * 40
+
+        return max(0, min(100, round(s)))
+    except Exception:
+        return 0
+
+
 def check_strategy_active(df: pd.DataFrame, strategy_id: str) -> bool:
     if df.empty or len(df) < 2: return False
     curr = df.iloc[-1]
@@ -206,6 +271,10 @@ def scan_market_signals():
     db = SessionLocal()
     count = 0
     try:
+        # Hapus semua signal lama agar tidak menumpuk
+        db.query(mdl.Signal).delete()
+        db.commit()
+
         stocks = db.query(mdl.Stock).filter(mdl.Stock.ticker != "^JKSE").all()
         for stock in stocks:
             rows = db.query(mdl.OHLCVDaily).filter(
@@ -245,11 +314,8 @@ def scan_market_signals():
             ] if check_strategy_active(df, s)]
 
             for strategy_id in active:
-                rsi = float(curr['rsi'])
-                strength = max(0, min(100, round(
-                    (30 - rsi) / 30 * 60 + 40 if rsi < 30 else
-                    (45 - rsi) / 45 * 40 + 20 if rsi < 45 else 30
-                )))
+                rsi_val  = _f(curr.get('rsi'), 0.0)
+                strength = _compute_strength(curr, strategy_id)
 
                 sig = mdl.Signal(
                     stock_id=stock.id,
@@ -257,7 +323,7 @@ def scan_market_signals():
                     type="BUY",
                     price=float(curr['close']),
                     strength=strength,
-                    description=f"{strategy_id} signal active | RSI:{rsi:.1f} | MACD:{float(curr['macd_hist']):.4f}",
+                    description=f"{strategy_id} | RSI:{rsi_val:.1f} | MACD:{_f(curr.get('macd_hist'), 0):.4f}",
                     created_at=datetime.now(),
                 )
                 db.add(sig)
