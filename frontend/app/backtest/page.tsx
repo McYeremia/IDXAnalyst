@@ -12,13 +12,23 @@ export default function BacktestPage() {
   const [results, setResults] = useState<Record<string, BacktestResult>>({});
   const [loading, setLoading] = useState<string | null>(null);
   const [selectedTicker, setSelectedTicker] = useState('BBCA');
+  const [capitalInput, setCapitalInput] = useState('10000000');
   const [isRunningAll, setIsRunningAll] = useState(false);
   const [expandedId, setExpandedId] = useState<string | null>(null);
+
+  const parsedCapital = Math.max(1_000_000, parseInt(capitalInput.replace(/\D/g, '')) || 10_000_000);
+
+  const formatCapitalDisplay = (val: string) => {
+    const num = parseInt(val.replace(/\D/g, '')) || 0;
+    if (num >= 1_000_000_000) return `Rp ${(num / 1_000_000_000).toFixed(1)}M (miliar)`;
+    if (num >= 1_000_000) return `Rp ${(num / 1_000_000).toFixed(0)} juta`;
+    return `Rp ${num.toLocaleString('id-ID')}`;
+  };
 
   const runSingleTest = async (strategyId: string) => {
     setLoading(strategyId);
     try {
-      const res = await api.runBacktest(selectedTicker, strategyId);
+      const res = await api.runBacktest(selectedTicker, strategyId, parsedCapital);
       if (!('error' in res)) {
         setResults(prev => ({ ...prev, [strategyId]: res }));
         setExpandedId(strategyId);
@@ -55,16 +65,34 @@ export default function BacktestPage() {
             <h1 className="text-4xl font-black tracking-tighter mb-2">Quant <span className="text-blue-500">Intelligence</span></h1>
             <p className="text-gray-500 font-mono text-[10px] uppercase tracking-widest italic">Statistical Validation Center</p>
           </div>
-          <div className="flex items-center gap-4">
+          <div className="flex flex-wrap items-center gap-3">
+            {/* Ticker Input */}
             <div className="flex items-center gap-3 bg-white/5 p-2 rounded-2xl border border-white/10">
-              <span className="text-[10px] font-bold text-gray-500 ml-4 uppercase tracking-widest">Asset</span>
+              <span className="text-[10px] font-bold text-gray-500 ml-3 uppercase tracking-widest">Asset</span>
               <input
                 type="text"
                 value={selectedTicker}
-                onChange={(e) => setSelectedTicker(e.target.value.toUpperCase())}
+                onChange={(e) => { setSelectedTicker(e.target.value.toUpperCase()); setResults({}); }}
                 className="bg-black/40 border border-white/10 rounded-xl px-4 py-2 font-mono font-bold text-blue-400 w-24 focus:outline-none"
               />
             </div>
+
+            {/* Modal Input */}
+            <div className="flex flex-col bg-white/5 px-4 py-2 rounded-2xl border border-white/10">
+              <span className="text-[8px] font-black text-gray-600 uppercase tracking-widest mb-1">Modal Simulasi</span>
+              <div className="flex items-center gap-2">
+                <span className="text-[10px] text-gray-500 font-mono">Rp</span>
+                <input
+                  type="text"
+                  value={capitalInput}
+                  onChange={(e) => { setCapitalInput(e.target.value); setResults({}); }}
+                  className="bg-black/40 border border-white/10 rounded-xl px-3 py-1.5 font-mono font-bold text-green-400 w-36 focus:outline-none text-sm"
+                  placeholder="10000000"
+                />
+              </div>
+              <span className="text-[8px] text-gray-600 mt-1 font-mono">{formatCapitalDisplay(capitalInput)}</span>
+            </div>
+
             <button
               onClick={runAllTests}
               disabled={isRunningAll}
@@ -206,23 +234,60 @@ export default function BacktestPage() {
                       {res.trades && res.trades.length > 0 && (
                         <div>
                           <p className="text-[9px] font-black text-gray-500 uppercase tracking-widest mb-3">
-                            Trade Log — {res.trades.length} trades
+                            Trade Log — {res.trades.length} transaksi
                           </p>
-                          <div className="max-h-48 overflow-y-auto custom-scrollbar space-y-1.5">
-                            {res.trades.map((t, i) => (
-                              <div key={i} className="flex justify-between items-center text-[10px] font-mono bg-white/[0.02] rounded-xl px-4 py-2">
-                                <span className="text-gray-500">{t.date}</span>
-                                <span className={`font-black ${t.type === 'BUY' ? 'text-green-400' : 'text-red-400'}`}>{t.type}</span>
-                                <span>Rp {t.price.toLocaleString('id-ID')}</span>
-                                {t.pnl !== undefined && (
-                                  <span className={`font-black ${t.pnl >= 0 ? 'text-green-400' : 'text-red-400'}`}>
-                                    {t.pnl >= 0 ? '+' : ''}Rp {Math.abs(t.pnl).toLocaleString('id-ID', { maximumFractionDigits: 0 })}
-                                    {' '}
-                                    <span className="text-[9px]">({t.pnl_pct?.toFixed(1)}%)</span>
-                                  </span>
-                                )}
-                              </div>
-                            ))}
+                          <div className="max-h-64 overflow-y-auto custom-scrollbar">
+                            <table className="w-full text-[9px] font-mono">
+                              <thead className="sticky top-0 bg-[#050505]">
+                                <tr className="text-gray-600 uppercase tracking-widest border-b border-white/5">
+                                  <th className="text-left py-2 pr-3">Tanggal</th>
+                                  <th className="text-left py-2 pr-3">Aksi</th>
+                                  <th className="text-right py-2 pr-3">Harga</th>
+                                  <th className="text-right py-2 pr-3">Lot</th>
+                                  <th className="text-right py-2 pr-3">Nilai</th>
+                                  <th className="text-right py-2 pr-3">Kas Sisa</th>
+                                  <th className="text-right py-2 pr-3">Hold</th>
+                                  <th className="text-right py-2">P&L</th>
+                                </tr>
+                              </thead>
+                              <tbody className="divide-y divide-white/[0.03]">
+                                {res.trades.map((t, i) => (
+                                  <tr key={i} className="hover:bg-white/[0.02] transition-colors">
+                                    <td className="py-2 pr-3 text-gray-500">{t.date}</td>
+                                    <td className="py-2 pr-3">
+                                      <span className={`font-black px-2 py-0.5 rounded-md ${t.type === 'BUY' ? 'bg-green-500/10 text-green-400' : t.exit_reason === 'stop-loss' ? 'bg-red-500/20 text-red-400' : 'bg-orange-500/10 text-orange-400'}`}>
+                                        {t.type}{t.exit_reason === 'stop-loss' ? ' ⚠' : ''}
+                                      </span>
+                                    </td>
+                                    <td className="py-2 pr-3 text-right text-white">
+                                      {t.price.toLocaleString('id-ID')}
+                                    </td>
+                                    <td className="py-2 pr-3 text-right text-blue-400 font-black">
+                                      {t.lots ?? '-'}
+                                    </td>
+                                    <td className="py-2 pr-3 text-right text-gray-300">
+                                      {t.total_value != null ? (t.total_value / 1_000_000).toFixed(1) + 'M' : '-'}
+                                    </td>
+                                    <td className="py-2 pr-3 text-right text-gray-400">
+                                      {t.capital_after != null ? (t.capital_after / 1_000_000).toFixed(1) + 'M' : '-'}
+                                    </td>
+                                    <td className="py-2 pr-3 text-right text-gray-500">
+                                      {t.hold_days != null ? `${t.hold_days}h` : '-'}
+                                    </td>
+                                    <td className="py-2 text-right">
+                                      {t.pnl != null ? (
+                                        <span className={`font-black ${t.pnl >= 0 ? 'text-green-400' : 'text-red-400'}`}>
+                                          {t.pnl >= 0 ? '+' : ''}{(t.pnl / 1_000_000).toFixed(2)}M
+                                          <span className="text-[8px] ml-1 opacity-70">({t.pnl_pct?.toFixed(1)}%)</span>
+                                        </span>
+                                      ) : (
+                                        <span className="text-gray-600">—</span>
+                                      )}
+                                    </td>
+                                  </tr>
+                                ))}
+                              </tbody>
+                            </table>
                           </div>
                         </div>
                       )}

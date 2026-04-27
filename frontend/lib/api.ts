@@ -75,7 +75,19 @@ export interface BacktestResult {
     final_value: number;
   };
   equity_curve: { date: string; value: number }[];
-  trades: { date: string; type: string; price: number; pnl?: number; pnl_pct?: number }[];
+  trades: {
+    date: string;
+    type: string;
+    price: number;
+    lots: number;
+    shares: number;
+    total_value: number;
+    capital_after: number;
+    hold_days?: number;
+    exit_reason?: string;
+    pnl?: number;
+    pnl_pct?: number;
+  }[];
 }
 
 export const api = {
@@ -135,14 +147,22 @@ export const api = {
     return res.json();
   },
 
-  async runBacktest(ticker: string, strategyId: string): Promise<BacktestResult> {
-    const res = await fetch(`${API_BASE_URL}/backtest/run/${ticker}/${strategyId}`);
+  async runBacktest(ticker: string, strategyId: string, capital: number = 10_000_000): Promise<BacktestResult> {
+    const res = await fetch(`${API_BASE_URL}/backtest/run/${ticker}/${strategyId}?capital=${capital}`);
     return res.json();
   },
 
   async screenStocks(strategyId: string) {
-    const res = await fetch(`${API_BASE_URL}/backtest/screen/${strategyId}`);
-    return res.json();
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 120_000); // 2 menit
+    try {
+      const res = await fetch(`${API_BASE_URL}/backtest/screen/${strategyId}`, {
+        signal: controller.signal,
+      });
+      return res.json();
+    } finally {
+      clearTimeout(timeout);
+    }
   },
 
   async addStock(ticker: string) {

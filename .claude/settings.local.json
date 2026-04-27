@@ -12,7 +12,9 @@
       "Bash(timeout 120 ./venv/Scripts/python.exe -c ' *)",
       "mcp__IDXAnalyst__analyze_stock",
       "mcp__IDXAnalyst__execute_ai_trade",
-      "Bash(grep -E \"\\\\.\\(json|yml|yaml|env|config\\)$\")"
+      "Bash(grep -E \"\\\\.\\(json|yml|yaml|env|config\\)$\")",
+      "mcp__IDXAnalyst__get_agent_context",
+      "mcp__IDXAnalyst__set_position_target"
     ]
   },
   "enableAllProjectMcpServers": true,

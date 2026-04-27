@@ -173,6 +173,7 @@ def execute_ai_trade(ticker: str, action: str, quantity_lots: int, agent_name: s
     - agent_name: CLAUDE or GEMINI
     - notes: reasoning or strategy used
     Trade will appear in the agent's portfolio on the frontend.
+    After a full SELL, position target is automatically deactivated.
     """
     db = SessionLocal()
     ticker = ticker.upper()
@@ -180,6 +181,7 @@ def execute_ai_trade(ticker: str, action: str, quantity_lots: int, agent_name: s
 
     stock = db.query(models.Stock).filter(models.Stock.ticker == ticker).first()
     if not stock:
+        db.close()
         return f"ERROR: Stock {ticker} not found in database."
 
     latest = (
@@ -189,6 +191,7 @@ def execute_ai_trade(ticker: str, action: str, quantity_lots: int, agent_name: s
         .first()
     )
     if not latest:
+        db.close()
         return f"ERROR: No market price data available for {ticker}."
 
     price = latest.close
@@ -206,6 +209,22 @@ def execute_ai_trade(ticker: str, action: str, quantity_lots: int, agent_name: s
         db.add(new_trade)
         db.commit()
         total_value = price * quantity_lots * 100
+
+        # Jika SELL, cek apakah posisi sudah habis — jika ya, nonaktifkan target
+        if action.upper() == "SELL":
+            holdings = _get_agent_holdings(db, agent_name)
+            remaining_shares = holdings.get(ticker, {}).get("shares", 0)
+            if remaining_shares <= 0:
+                target = db.query(models.AgentPositionTarget).filter(
+                    models.AgentPositionTarget.agent_name == agent_name,
+                    models.AgentPositionTarget.ticker == ticker,
+                    models.AgentPositionTarget.is_active == 1,
+                ).first()
+                if target:
+                    target.is_active = 0
+                    target.updated_at = datetime.utcnow()
+                    db.commit()
+
         return (
             f"SUCCESS: {agent_name} executed {action} {quantity_lots} lots of {ticker} "
             f"@ Rp {price:,.0f} — Total Rp {total_value:,.0f}"
@@ -505,6 +524,172 @@ def get_trade_history(agent_name: str, limit: int = 20) -> str:
                 break
 
         return json.dumps(result, indent=2)
+    finally:
+        db.close()
+
+
+@mcp.tool()
+def set_position_target(
+    agent_name: str,
+    ticker: str,
+    take_profit_price: float = None,
+    cut_loss_price: float = None,
+    decision: str = "HOLD",
+    notes: str = "",
+) -> str:
+    """
+    Set or update take profit / cut loss targets for an active position.
+    Call this after opening a new position, or whenever target needs to be revised.
+    - agent_name: CLAUDE or GEMINI
+    - ticker: stock ticker
+    - take_profit_price: harga target untuk ambil profit (opsional)
+    - cut_loss_price: harga batas cut loss (opsional)
+    - decision: stance saat ini — HOLD, BUY_MORE, WAIT, TAKE_PROFIT, atau CUT_LOSS
+    - notes: alasan / reasoning untuk target ini
+    """
+    db = SessionLocal()
+    ticker = ticker.upper()
+    agent_name = agent_name.upper()
+    try:
+        existing = db.query(models.AgentPositionTarget).filter(
+            models.AgentPositionTarget.agent_name == agent_name,
+            models.AgentPositionTarget.ticker == ticker,
+            models.AgentPositionTarget.is_active == 1,
+        ).first()
+
+        if existing:
+            if take_profit_price is not None:
+                existing.take_profit_price = take_profit_price
+            if cut_loss_price is not None:
+                existing.cut_loss_price = cut_loss_price
+            existing.decision = decision
+            existing.notes = notes
+            existing.updated_at = datetime.utcnow()
+            db.commit()
+            return (
+                f"SUCCESS: Target {agent_name}/{ticker} diperbarui | "
+                f"TP: {take_profit_price}, CL: {cut_loss_price}, Decision: {decision}"
+            )
+        else:
+            new_target = models.AgentPositionTarget(
+                agent_name=agent_name,
+                ticker=ticker,
+                take_profit_price=take_profit_price,
+                cut_loss_price=cut_loss_price,
+                decision=decision,
+                notes=notes,
+                is_active=1,
+            )
+            db.add(new_target)
+            db.commit()
+            return (
+                f"SUCCESS: Target {agent_name}/{ticker} disimpan | "
+                f"TP: {take_profit_price}, CL: {cut_loss_price}, Decision: {decision}"
+            )
+    except Exception as e:
+        db.rollback()
+        return f"ERROR: {str(e)}"
+    finally:
+        db.close()
+
+
+@mcp.tool()
+def get_agent_context(agent_name: str) -> str:
+    """
+    Load konteks lengkap sesi trading: posisi aktif + target harga + alert mendesak.
+    SELALU panggil tool ini PERTAMA KALI di awal setiap sesi trading sebelum aksi apapun.
+    Menampilkan setiap posisi terbuka beserta take profit, cut loss, dan decision terakhir.
+    - agent_name: CLAUDE or GEMINI
+    """
+    db = SessionLocal()
+    agent_name = agent_name.upper()
+    INITIAL_MODAL = 15_000_000
+    try:
+        holdings = _get_agent_holdings(db, agent_name)
+
+        targets = db.query(models.AgentPositionTarget).filter(
+            models.AgentPositionTarget.agent_name == agent_name,
+            models.AgentPositionTarget.is_active == 1,
+        ).all()
+        targets_map = {t.ticker: t for t in targets}
+
+        context_positions = []
+        urgent_alerts = []
+
+        for ticker, data in holdings.items():
+            if data["shares"] <= 0:
+                continue
+
+            stock = db.query(models.Stock).filter(models.Stock.ticker == ticker).first()
+            if not stock:
+                continue
+            latest = (
+                db.query(models.OHLCVDaily)
+                .filter(models.OHLCVDaily.stock_id == stock.id)
+                .order_by(desc(models.OHLCVDaily.date))
+                .first()
+            )
+            current_price = float(latest.close) if latest else data["avg_price"]
+            unrealized_pct = round(
+                (current_price - data["avg_price"]) / data["avg_price"] * 100, 2
+            )
+
+            target = targets_map.get(ticker)
+            tp = target.take_profit_price if target else None
+            cl = target.cut_loss_price if target else None
+            decision = target.decision if target else "NO_TARGET"
+            target_notes = target.notes if target else ""
+
+            position_alerts = []
+            if tp and current_price >= tp:
+                msg = f"TAKE PROFIT TERCAPAI — harga {current_price:,.0f} >= target {tp:,.0f}"
+                position_alerts.append(msg)
+                urgent_alerts.append(f"{ticker}: {msg}")
+            if cl and current_price <= cl:
+                msg = f"CUT LOSS TRIGGERED — harga {current_price:,.0f} <= batas {cl:,.0f}"
+                position_alerts.append(msg)
+                urgent_alerts.append(f"{ticker}: {msg}")
+            if unrealized_pct <= -7.0:
+                msg = f"STOP LOSS -7% TERCAPAI — unrealized {unrealized_pct:.1f}%"
+                position_alerts.append(msg)
+                urgent_alerts.append(f"{ticker}: {msg}")
+            if not tp and not cl:
+                position_alerts.append("PERINGATAN: Belum ada target TP/CL — set dengan set_position_target()")
+
+            context_positions.append({
+                "ticker": ticker,
+                "name": stock.name,
+                "lots": data["shares"] // 100,
+                "avg_buy_price": round(data["avg_price"], 2),
+                "current_price": current_price,
+                "unrealized_pct": unrealized_pct,
+                "target": {
+                    "take_profit_price": tp,
+                    "cut_loss_price": cl,
+                    "decision": decision,
+                    "notes": target_notes,
+                },
+                "alerts": position_alerts,
+            })
+
+        total_invested = sum(d["avg_price"] * d["shares"] for d in holdings.values() if d["shares"] > 0)
+        total_realized = sum(d["realized"] for d in holdings.values())
+        liquid_cash = INITIAL_MODAL - total_invested + total_realized
+
+        result = {
+            "agent": agent_name,
+            "liquid_cash": round(liquid_cash, 2),
+            "open_positions_count": len(context_positions),
+            "urgent_alerts": urgent_alerts,
+            "positions": context_positions,
+            "instructions": (
+                "1) Baca semua posisi dan alertnya. "
+                "2) Jika ada ALERT mendesak (TP/CL/Stop Loss), prioritaskan eksekusi dulu. "
+                "3) Posisi tanpa target: set target dengan set_position_target() setelah analisa. "
+                "4) Baru kemudian lanjut scan peluang baru."
+            ),
+        }
+        return json.dumps(result, indent=2, ensure_ascii=False)
     finally:
         db.close()
 

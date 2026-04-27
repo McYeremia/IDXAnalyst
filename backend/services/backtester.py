@@ -6,7 +6,7 @@ from sqlalchemy.orm import Session
 import models
 import services.indicators as ind_svc
 
-def run_backtest(db: Session, stock_ticker: str, strategy_id: str, initial_capital: float = 100_000_000):
+def run_backtest(db: Session, stock_ticker: str, strategy_id: str, initial_capital: float = 10_000_000):
     stock = db.query(models.Stock).filter(models.Stock.ticker == stock_ticker).first()
     if not stock: return {"error": "Stock not found"}
 
@@ -49,6 +49,7 @@ def run_backtest(db: Session, stock_ticker: str, strategy_id: str, initial_capit
     cash = initial_capital
     position = 0
     entry_price = 0
+    entry_date = None
     trades = []
     equity_curve = []
 
@@ -108,18 +109,39 @@ def run_backtest(db: Session, stock_ticker: str, strategy_id: str, initial_capit
             shares = (cash // (price * 100)) * 100
             if shares > 0:
                 entry_price = price
+                entry_date = date
                 position = shares
                 cash -= (position * entry_price)
-                trades.append({"date": str(date), "type": "BUY", "price": float(entry_price)})
-        
-        elif position > 0 and (sell_signal or (price - entry_price)/entry_price < -0.07): # Auto SL 7%
-            cash += (position * price)
+                trades.append({
+                    "date": str(date),
+                    "type": "BUY",
+                    "price": float(entry_price),
+                    "lots": int(position // 100),
+                    "shares": int(position),
+                    "total_value": float(position * entry_price),
+                    "capital_after": float(cash),
+                })
+
+        elif position > 0 and (sell_signal or (price - entry_price) / entry_price < -0.07):
+            pnl = (price - entry_price) * position
+            cash += position * price
+            hold_days = (date - entry_date).days if entry_date is not None else 0
+            reason = "stop-loss" if (price - entry_price) / entry_price < -0.07 else "signal"
             trades.append({
-                "date": str(date), "type": "SELL", "price": float(price),
-                "pnl": float((price - entry_price) * position),
-                "pnl_pct": float(((price - entry_price) / entry_price) * 100)
+                "date": str(date),
+                "type": "SELL",
+                "price": float(price),
+                "lots": int(position // 100),
+                "shares": int(position),
+                "total_value": float(position * price),
+                "capital_after": float(cash),
+                "hold_days": hold_days,
+                "exit_reason": reason,
+                "pnl": float(pnl),
+                "pnl_pct": float((price - entry_price) / entry_price * 100),
             })
             position = 0
+            entry_date = None
 
         equity_curve.append({"date": str(date), "value": float(cash + (position * price))})
 
