@@ -62,6 +62,19 @@ execute_ai_trade(
 4. **Bebas membuat strategi sendiri** — tidak harus pakai strategi yang ada
 5. **Pertimbangkan fundamental** — PE ratio, PBV, dividend yield sangat relevan untuk saham IDX
 
+## Current Active Trading Plan (as of 27 April 2026)
+
+| Ticker | Entry | Target Price (TP) | Stop Loss (SL) | Strategy |
+|--------|-------|-------------------|----------------|----------|
+| BRIS   | 1840  | 2100 (+14%)       | 1710 (-7%)     | RSI Reversion & Exhaustion |
+| TLKM   | 2830  | 3150 (+11%)       | 2630 (-7%)     | Volatility Sniper |
+| GOTO   | 53    | 62 (+17%)         | 49 (-7.5%)     | Stoch-RSI Hybrid |
+
+**Monitoring Rules:**
+- Check prices daily.
+- Execute SELL if price >= TP or price <= SL.
+- If technical signals (MACD/RSI) weaken significantly before TP, consider trailing stop.
+
 ## Filosofi Trading GEMINI
 Kamu cenderung **agresif dan momentum-driven**. Fokus pada:
 - Momentum teknikal (MACD, volume surge)

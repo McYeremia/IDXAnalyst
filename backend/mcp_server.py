@@ -1,6 +1,6 @@
 import os
 import json
-from datetime import date
+from datetime import date, datetime
 from typing import Dict
 
 from mcp.server.fastmcp import FastMCP
@@ -10,9 +10,12 @@ import pandas as pd
 import ta as ta_lib
 
 import models
-from database import SessionLocal
+from database import SessionLocal, engine
 import services.backtester as bt_svc
 from services.watcher import check_strategy_active
+
+# Pastikan semua tabel (termasuk agent_position_targets) sudah ada di DB
+models.Base.metadata.create_all(bind=engine)
 
 mcp = FastMCP("IDXAnalyst")
 
@@ -54,6 +57,33 @@ def _build_indicator_df(db: Session, stock_id: int) -> pd.DataFrame:
     df["vol_ma20"] = ta_lib.trend.SMAIndicator(df["volume"], window=20).sma_indicator()
 
     return df
+
+
+def _get_agent_holdings(db: Session, agent_name: str) -> Dict[str, dict]:
+    """Rekonstruksi posisi aktif agent dari TradeLog. Return {ticker: {shares, avg_price, realized}}."""
+    all_trades = db.query(models.TradeLog).order_by(models.TradeLog.date).all()
+    holdings: Dict[str, dict] = {}
+    for t in all_trades:
+        raw_type = t.trade_type.upper()
+        if agent_name == "CLAUDE" and "CLAUDE" not in raw_type:
+            continue
+        if agent_name == "GEMINI" and "GEMINI" not in raw_type:
+            continue
+        if agent_name == "USER" and ("CLAUDE" in raw_type or "GEMINI" in raw_type):
+            continue
+        ticker = t.stock.ticker
+        if ticker not in holdings:
+            holdings[ticker] = {"shares": 0, "avg_price": 0.0, "realized": 0.0}
+        data = holdings[ticker]
+        qty = t.quantity * 100
+        if t.action == "BUY":
+            total_cost = data["shares"] * data["avg_price"] + qty * t.price
+            data["shares"] += qty
+            data["avg_price"] = total_cost / data["shares"] if data["shares"] > 0 else 0.0
+        else:
+            data["realized"] += (t.price - data["avg_price"]) * qty
+            data["shares"] -= qty
+    return holdings
 
 
 @mcp.tool()

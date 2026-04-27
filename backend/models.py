@@ -121,3 +121,19 @@ class TradeLog(Base):
 
     stock = relationship("Stock", back_populates="trades")
     backtest_run = relationship("BacktestRun", back_populates="trades")
+
+
+class AgentPositionTarget(Base):
+    __tablename__ = "agent_position_targets"
+
+    id = Column(Integer, primary_key=True, index=True)
+    agent_name = Column(String(20), nullable=False, index=True)   # CLAUDE / GEMINI / USER
+    ticker = Column(String(10), nullable=False, index=True)
+    take_profit_price = Column(Float, nullable=True)
+    cut_loss_price = Column(Float, nullable=True)
+    decision = Column(String(20), nullable=True)    # HOLD / BUY_MORE / WAIT / TAKE_PROFIT / CUT_LOSS
+    strategy = Column(String(50), nullable=True)
+    notes = Column(String(500), nullable=True)
+    is_active = Column(Integer, default=1)          # 1 = posisi masih terbuka, 0 = sudah ditutup
+    created_at = Column(DateTime, server_default=func.now())
+    updated_at = Column(DateTime, server_default=func.now())
