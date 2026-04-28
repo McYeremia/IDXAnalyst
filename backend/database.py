@@ -6,7 +6,8 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:///./idxanalyst.db")
+_DB_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "idxanalyst.db")
+DATABASE_URL = os.getenv("DATABASE_URL", f"sqlite:///{_DB_PATH}")
 connect_args = {"check_same_thread": False} if DATABASE_URL.startswith("sqlite") else {}
 
 # SQLite tidak butuh connection pool — NullPool buka/tutup file langsung per session
