@@ -1,18 +1,32 @@
+import os
+import sys
 import yfinance as yf
 import pandas as pd
 from sqlalchemy.orm import Session
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, date
 import models
 
-def fetch_ohlcv(ticker: str, period: str = "5y") -> pd.DataFrame:
+def fetch_ohlcv(ticker: str, period: str = "5y", start: date = None) -> pd.DataFrame:
     """
     Fetch historical data from Yahoo Finance.
+    If `start` is given, fetch from that date onwards (incremental).
     """
-    # Penanganan ticker: Jika tidak diawali ^ (index), tambahkan .JK untuk saham Indonesia
     symbol = ticker if ticker.startswith("^") else f"{ticker}.JK"
-    
+
     try:
-        df = yf.download(symbol, period=period, interval="1d", progress=False)
+        # Redirect stderr untuk suppress pesan "Failed download" dari yfinance
+        devnull = open(os.devnull, 'w')
+        old_stderr = sys.stderr
+        sys.stderr = devnull
+        try:
+            if start:
+                end = datetime.now().date() + timedelta(days=1)
+                df = yf.download(symbol, start=str(start), end=str(end), interval="1d", progress=False)
+            else:
+                df = yf.download(symbol, period=period, interval="1d", progress=False)
+        finally:
+            sys.stderr = old_stderr
+            devnull.close()
         return df
     except Exception as e:
         print(f"Error fetching {symbol}: {e}")
@@ -25,39 +39,47 @@ def save_ohlcv(db: Session, stock: models.Stock, df: pd.DataFrame) -> int:
     if df.empty:
         return 0
 
+    def get_val(val):
+        if isinstance(val, pd.Series):
+            return float(val.iloc[0])
+        return float(val)
+
+    cutoff = date.today() - timedelta(days=5)
     count = 0
     for index, row in df.iterrows():
-        # yfinance terbaru kadang mengembalikan MultiIndex atau Series
-        # Kita pastikan mengambil nilai float murni
         try:
-            # Handle possible Series or Single Value
-            def get_val(val):
-                if isinstance(val, pd.Series):
-                    return float(val.iloc[0])
-                return float(val)
-
             d = index.date() if hasattr(index, 'date') else index
-            
-            # Cek duplikat
+
+            open_  = get_val(row["Open"])
+            high   = get_val(row["High"])
+            low    = get_val(row["Low"])
+            close  = get_val(row["Close"])
+            volume = int(get_val(row["Volume"]))
+            adj    = get_val(row["Adj Close"]) if "Adj Close" in row else close
+
             exists = db.query(models.OHLCVDaily).filter(
                 models.OHLCVDaily.stock_id == stock.id,
                 models.OHLCVDaily.date == d
             ).first()
-            
-            if not exists:
-                new_row = models.OHLCVDaily(
-                    stock_id=stock.id,
-                    date=d,
-                    open=get_val(row["Open"]),
-                    high=get_val(row["High"]),
-                    low=get_val(row["Low"]),
-                    close=get_val(row["Close"]),
-                    volume=int(get_val(row["Volume"])),
-                    adj_close=get_val(row["Adj Close"]) if "Adj Close" in row else get_val(row["Close"])
-                )
-                db.add(new_row)
+
+            if exists:
+                # Upsert untuk 5 hari terakhir — harga bisa berubah jika
+                # sebelumnya di-fetch sebelum market close
+                if d >= cutoff:
+                    exists.open      = open_
+                    exists.high      = high
+                    exists.low       = low
+                    exists.close     = close
+                    exists.volume    = volume
+                    exists.adj_close = adj
+            else:
+                db.add(models.OHLCVDaily(
+                    stock_id=stock.id, date=d,
+                    open=open_, high=high, low=low,
+                    close=close, volume=volume, adj_close=adj
+                ))
                 count += 1
-        except Exception as e:
+        except Exception:
             continue
             
     db.commit()

@@ -1,9 +1,10 @@
-from datetime import date
+from datetime import date, timedelta
 from typing import Optional
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
-from sqlalchemy import desc
+from sqlalchemy import desc, func
 import yfinance as yf
 
 import models
@@ -17,14 +18,27 @@ router = APIRouter(prefix="/stocks", tags=["stocks"])
 @router.get("")
 def list_stocks(db: Session = Depends(get_db)):
     stocks = db.query(models.Stock).order_by(models.Stock.ticker).all()
+
+    # Satu query untuk semua latest OHLCV — hindari N+1
+    latest_subq = (
+        db.query(
+            models.OHLCVDaily.stock_id,
+            func.max(models.OHLCVDaily.date).label("max_date"),
+        )
+        .group_by(models.OHLCVDaily.stock_id)
+        .subquery()
+    )
+    latest_rows = (
+        db.query(models.OHLCVDaily)
+        .join(latest_subq, (models.OHLCVDaily.stock_id == latest_subq.c.stock_id)
+              & (models.OHLCVDaily.date == latest_subq.c.max_date))
+        .all()
+    )
+    latest_map = {row.stock_id: row for row in latest_rows}
+
     result = []
     for stock in stocks:
-        latest = (
-            db.query(models.OHLCVDaily)
-            .filter(models.OHLCVDaily.stock_id == stock.id)
-            .order_by(models.OHLCVDaily.date.desc())
-            .first()
-        )
+        latest = latest_map.get(stock.id)
         result.append({
             "ticker": stock.ticker,
             "name": stock.name,
@@ -63,17 +77,66 @@ def get_ai_signals(db: Session = Depends(get_db)):
     ]
 
 
+def _fetch_only(ticker: str, start_date: date | None) -> tuple:
+    """Hanya fetch HTTP dari Yahoo Finance — tanpa sentuh DB sama sekali."""
+    try:
+        if start_date is not None:
+            df = fetcher.fetch_ohlcv(ticker, start=start_date)
+        else:
+            df = fetcher.fetch_ohlcv(ticker, period="5y")
+        return ticker, df, None
+    except Exception as e:
+        return ticker, None, str(e)
+
+
 @router.post("/refresh")
 def refresh_all(db: Session = Depends(get_db)):
     fetcher.seed_stocks(db)
+    stocks = db.query(models.Stock).all()
+
+    # Ambil tanggal terakhir semua saham sekaligus — 1 query agregat
+    from sqlalchemy import func
+    latest_map: dict[int, date] = dict(
+        db.query(models.OHLCVDaily.stock_id, func.max(models.OHLCVDaily.date))
+        .group_by(models.OHLCVDaily.stock_id)
+        .all()
+    )
+
+    # Tentukan start_date per saham (tanpa buka koneksi baru)
+    fetch_tasks = []
+    for stock in stocks:
+        ld = latest_map.get(stock.id)
+        start = ld if ld is not None and ld <= date.today() else None
+        fetch_tasks.append((stock, start))
+
+    # --- FASE 1: Fetch HTTP paralel, TANPA DB ---
+    fetched: dict[int, tuple] = {}   # stock_id -> (df, error)
+    with ThreadPoolExecutor(max_workers=10) as executor:
+        futures = {
+            executor.submit(_fetch_only, stock.ticker, start): stock
+            for stock, start in fetch_tasks
+        }
+        for future in as_completed(futures):
+            stock = futures[future]
+            _, df, err = future.result()
+            fetched[stock.id] = (df, err)
+
+    # --- FASE 2: Write DB sequential — SQLite hanya 1 writer ---
     results = {}
-    for stock in db.query(models.Stock).all():
+    for stock in stocks:
+        df, err = fetched.get(stock.id, (None, "fetch not found"))
+        if err:
+            results[stock.ticker] = {"status": "error", "error": err}
+            continue
+        if df is None or df.empty:
+            results[stock.ticker] = {"status": "ok", "new_rows": 0, "note": "no data"}
+            continue
         try:
-            df = fetcher.fetch_ohlcv(stock.ticker)
             count = fetcher.save_ohlcv(db, stock, df)
             results[stock.ticker] = {"status": "ok", "new_rows": count}
         except Exception as e:
             results[stock.ticker] = {"status": "error", "error": str(e)}
+
     return results
 
 
