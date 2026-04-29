@@ -5,6 +5,8 @@ export interface Stock {
   name: string;
   sector: string;
   last_price: number | null;
+  prev_close: number | null;
+  change_pct: number | null;
   last_date: string | null;
   pe_ratio: number | null;
   pbv_ratio: number | null;

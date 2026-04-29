@@ -37,9 +37,29 @@ export default function Dashboard() {
   const [syncStatus, setSyncStatus] = useState<SyncStatus | null>(null);
   const syncPollRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const [searchTerm, setSearchTerm] = useState('');
+  const [watchlist, setWatchlist] = useState<Set<string>>(new Set());
+  const [showWatchlistOnly, setShowWatchlistOnly] = useState(false);
 
   const [newTicker, setNewTicker] = useState('');
   const [isAdding, setIsAdding] = useState(false);
+
+  useEffect(() => {
+    const saved = localStorage.getItem('watchlist');
+    if (saved) {
+      try { setWatchlist(new Set(JSON.parse(saved))); } catch {}
+    }
+  }, []);
+
+  const toggleWatchlist = (e: React.MouseEvent, ticker: string) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setWatchlist(prev => {
+      const next = new Set(prev);
+      next.has(ticker) ? next.delete(ticker) : next.add(ticker);
+      localStorage.setItem('watchlist', JSON.stringify([...next]));
+      return next;
+    });
+  };
 
   const loadData = async () => {
     try {
@@ -130,7 +150,11 @@ export default function Dashboard() {
   // Gabungkan semua portofolio untuk total P&L jika portfolio sudah terisi
   const totalUnrealized = portfolio ? (portfolio.USER.unrealized + portfolio.GEMINI.unrealized + portfolio.CLAUDE.unrealized) : 0;
   
-  const filteredStocks = stocks.filter(s => s.ticker !== '^JKSE' && (s.ticker.toLowerCase().includes(searchTerm.toLowerCase()) || s.name.toLowerCase().includes(searchTerm.toLowerCase())));
+  const filteredStocks = stocks.filter(s =>
+    s.ticker !== '^JKSE' &&
+    (!showWatchlistOnly || watchlist.has(s.ticker)) &&
+    (s.ticker.toLowerCase().includes(searchTerm.toLowerCase()) || s.name.toLowerCase().includes(searchTerm.toLowerCase()))
+  );
 
   const currentIhsg = ihsgData[ihsgData.length - 1]?.close || 0;
   const prevIhsg = ihsgData[ihsgData.length - 2]?.close || 0;
@@ -226,8 +250,16 @@ export default function Dashboard() {
 
         {/* MARKET GRID */}
         <div className="flex flex-col md:flex-row justify-between items-center mb-8 gap-4 px-2">
-           <h2 className="text-xs font-black font-mono uppercase tracking-[0.4em] text-gray-500">Market Terminal</h2>
-           <input 
+           <div className="flex items-center gap-4">
+             <h2 className="text-xs font-black font-mono uppercase tracking-[0.4em] text-gray-500">Market Terminal</h2>
+             <button
+               onClick={() => setShowWatchlistOnly(v => !v)}
+               className={`text-[9px] font-black uppercase tracking-widest px-3 py-1.5 rounded-full transition-all ${showWatchlistOnly ? 'bg-yellow-400 text-black' : 'bg-white/5 text-gray-500 hover:bg-white/10'}`}
+             >
+               ★ Watchlist {showWatchlistOnly && `(${watchlist.size})`}
+             </button>
+           </div>
+           <input
               type="text"
               placeholder="Search assets..."
               className="bg-white/5 border border-white/10 rounded-xl px-6 py-3 text-xs focus:outline-none focus:border-blue-500/50 w-full md:w-80 shadow-inner"
@@ -249,6 +281,11 @@ export default function Dashboard() {
                     <p className="text-[9px] text-gray-600 font-mono uppercase truncate w-32">{stock.name}</p>
                   </div>
                   <div className="flex flex-col gap-1 items-end">
+                    <button
+                      onClick={(e) => toggleWatchlist(e, stock.ticker)}
+                      className={`text-base leading-none transition-colors ${watchlist.has(stock.ticker) ? 'text-yellow-400' : 'text-gray-700 hover:text-yellow-400'}`}
+                      title={watchlist.has(stock.ticker) ? 'Remove from watchlist' : 'Add to watchlist'}
+                    >★</button>
                     {hasUser && <span className="px-2 py-0.5 rounded bg-blue-500 text-black text-[7px] font-black uppercase">User</span>}
                     {hasGemini && <span className="px-2 py-0.5 rounded bg-teal-500 text-black text-[7px] font-black uppercase">Gemini</span>}
                     {hasClaude && <span className="px-2 py-0.5 rounded bg-purple-500 text-white text-[7px] font-black uppercase tracking-tighter">Claude</span>}
@@ -259,9 +296,16 @@ export default function Dashboard() {
                       <p className="text-[8px] font-mono text-gray-700 uppercase mb-1 font-black">Quote Value</p>
                       <p className="text-sm font-bold font-mono">Rp {stock.last_price?.toLocaleString('id-ID')}</p>
                    </div>
-                   {stock.last_date && (
-                     <p className="text-[8px] font-mono text-gray-700">{stock.last_date}</p>
-                   )}
+                   <div className="flex flex-col items-end gap-1">
+                      {stock.change_pct != null && (
+                        <span className={`text-[10px] font-black font-mono ${stock.change_pct >= 0 ? 'text-green-400' : 'text-red-400'}`}>
+                          {stock.change_pct >= 0 ? '▲' : '▼'} {Math.abs(stock.change_pct).toFixed(2)}%
+                        </span>
+                      )}
+                      {stock.last_date && (
+                        <p className="text-[8px] font-mono text-gray-700">{stock.last_date}</p>
+                      )}
+                   </div>
                 </div>
               </Link>
             );

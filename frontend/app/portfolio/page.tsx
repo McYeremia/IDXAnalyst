@@ -9,6 +9,18 @@ import dynamic from 'next/dynamic';
 const EquityChart = dynamic(() => import('@/components/EquityChart'), { ssr: false });
 
 type PortfolioTab = 'USER' | 'GEMINI' | 'CLAUDE';
+type ViewMode = 'portfolio' | 'analytics';
+
+const DONUT_COLORS = ['#3b82f6','#14b8a6','#a855f7','#f59e0b','#ef4444','#10b981','#f97316','#06b6d4','#8b5cf6'];
+
+function buildDonutPath(s: number, e: number, cx: number, cy: number, ro: number, ri: number) {
+  const x1 = cx + ro * Math.cos(s), y1 = cy + ro * Math.sin(s);
+  const x2 = cx + ro * Math.cos(e), y2 = cy + ro * Math.sin(e);
+  const ix1 = cx + ri * Math.cos(e), iy1 = cy + ri * Math.sin(e);
+  const ix2 = cx + ri * Math.cos(s), iy2 = cy + ri * Math.sin(s);
+  const la = e - s > Math.PI ? 1 : 0;
+  return `M ${x1} ${y1} A ${ro} ${ro} 0 ${la} 1 ${x2} ${y2} L ${ix1} ${iy1} A ${ri} ${ri} 0 ${la} 0 ${ix2} ${iy2} Z`;
+}
 
 const TAB_COLORS: Record<PortfolioTab, string> = {
   USER: '#3b82f6',
@@ -38,6 +50,7 @@ export default function PortfolioPage() {
   const [sellModal, setSellModal] = useState<SellModal>({ open: false, ticker: '', maxLots: 0 });
   const [sellQty, setSellQty] = useState(1);
   const [isSelling, setIsSelling] = useState(false);
+  const [viewMode, setViewMode] = useState<ViewMode>('portfolio');
 
   const refresh = useCallback(async () => {
     const [portfolio, growthData, hist] = await Promise.all([
@@ -90,6 +103,38 @@ export default function PortfolioPage() {
   const INITIAL = 15_000_000;
   const totalReturn = current.total_value - INITIAL;
   const totalReturnPct = ((totalReturn / INITIAL) * 100).toFixed(2);
+
+  // Analytics
+  const sellTrades = history.filter(t => t.action === 'SELL' && t.pnl !== null);
+  const winCount = sellTrades.filter(t => t.pnl! > 0).length;
+  const winRate = sellTrades.length > 0 ? (winCount / sellTrades.length * 100) : null;
+
+  let maxDrawdownPct = 0;
+  if (growthData.length > 1) {
+    let peak = growthData[0].value;
+    for (const pt of growthData) {
+      if (pt.value > peak) peak = pt.value;
+      const dd = peak > 0 ? (peak - pt.value) / peak * 100 : 0;
+      if (dd > maxDrawdownPct) maxDrawdownPct = dd;
+    }
+  }
+
+  const monthlyPnl: Record<string, number> = {};
+  for (const t of sellTrades) {
+    const month = t.date.substring(0, 7);
+    monthlyPnl[month] = (monthlyPnl[month] || 0) + (t.pnl || 0);
+  }
+  const monthlyRows = Object.entries(monthlyPnl).sort(([a], [b]) => b.localeCompare(a));
+
+  const totalInvested = current.assets.reduce((sum: number, a: PortfolioItem) => sum + a.cost_basis, 0);
+  const allocData = [...current.assets]
+    .sort((a: PortfolioItem, b: PortfolioItem) => b.cost_basis - a.cost_basis)
+    .map((a: PortfolioItem, i: number) => ({
+      ticker: a.ticker,
+      pct: totalInvested > 0 ? a.cost_basis / totalInvested * 100 : 0,
+      value: a.cost_basis,
+      color: DONUT_COLORS[i % DONUT_COLORS.length],
+    }));
 
   return (
     <main className="min-h-screen bg-[#050505] text-white p-6 md:p-10 pt-24 md:pt-28 text-left font-mono">

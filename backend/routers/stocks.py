@@ -32,7 +32,7 @@ _sync_state: dict = {
 def list_stocks(db: Session = Depends(get_db)):
     stocks = db.query(models.Stock).order_by(models.Stock.ticker).all()
 
-    # Satu query untuk semua latest OHLCV — hindari N+1
+    # Latest OHLCV per stock
     latest_subq = (
         db.query(
             models.OHLCVDaily.stock_id,
@@ -49,14 +49,42 @@ def list_stocks(db: Session = Depends(get_db)):
     )
     latest_map = {row.stock_id: row for row in latest_rows}
 
+    # Second-latest OHLCV per stock (for daily change)
+    prev_subq = (
+        db.query(
+            models.OHLCVDaily.stock_id,
+            func.max(models.OHLCVDaily.date).label("prev_date"),
+        )
+        .join(latest_subq, (models.OHLCVDaily.stock_id == latest_subq.c.stock_id)
+              & (models.OHLCVDaily.date < latest_subq.c.max_date))
+        .group_by(models.OHLCVDaily.stock_id)
+        .subquery()
+    )
+    prev_rows = (
+        db.query(models.OHLCVDaily)
+        .join(prev_subq, (models.OHLCVDaily.stock_id == prev_subq.c.stock_id)
+              & (models.OHLCVDaily.date == prev_subq.c.prev_date))
+        .all()
+    )
+    prev_map = {row.stock_id: row for row in prev_rows}
+
     result = []
     for stock in stocks:
         latest = latest_map.get(stock.id)
+        prev = prev_map.get(stock.id)
+        last_price = latest.close if latest else None
+        prev_close = prev.close if prev else None
+        if last_price and prev_close and prev_close > 0:
+            change_pct = round((last_price - prev_close) / prev_close * 100, 2)
+        else:
+            change_pct = None
         result.append({
             "ticker": stock.ticker,
             "name": stock.name,
             "sector": stock.sector,
-            "last_price": latest.close if latest else None,
+            "last_price": last_price,
+            "prev_close": prev_close,
+            "change_pct": change_pct,
             "last_date": str(latest.date) if latest else None,
             "market_cap": stock.market_cap,
             "pe_ratio": stock.pe_ratio,
