@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useState, useCallback } from 'react';
+import { useRouter } from 'next/navigation';
 import { api, TradeHistory, PortfolioItem } from '@/lib/api';
 import Link from 'next/link';
 import dynamic from 'next/dynamic';
@@ -28,6 +29,7 @@ interface SellModal {
 }
 
 export default function PortfolioPage() {
+  const router = useRouter();
   const [data, setData] = useState<any>(null);
   const [growth, setGrowth] = useState<Record<PortfolioTab, { date: string; value: number }[]> | null>(null);
   const [history, setHistory] = useState<TradeHistory[]>([]);
@@ -271,24 +273,29 @@ export default function PortfolioPage() {
                   <th className="px-6 py-5 text-right">Total Nilai</th>
                   <th className="px-6 py-5 text-right">P&L</th>
                   <th className="px-6 py-5">Strategi</th>
-                  <th className="px-6 py-5">Alasan</th>
+                  <th className="px-6 py-5 text-xs text-gray-500 italic max-w-[160px]">Alasan</th>
+                  <th className="px-6 py-5" />
                 </tr>
               </thead>
               <tbody className="divide-y divide-white/[0.03]">
                 {history.length === 0 ? (
                   <tr>
-                    <td colSpan={9} className="px-8 py-24 text-center text-gray-700 italic text-[10px] uppercase font-black opacity-30">
+                    <td colSpan={10} className="px-8 py-24 text-center text-gray-700 italic text-[10px] uppercase font-black opacity-30">
                       Belum ada riwayat transaksi untuk {activeTab}
                     </td>
                   </tr>
                 ) : (
                   history.map((t) => (
-                    <tr key={t.id} className="group hover:bg-white/[0.02] transition-all">
+                    <tr
+                      key={t.id}
+                      onClick={() => router.push(`/portfolio/trade/${t.id}`)}
+                      className="group hover:bg-white/[0.03] transition-all cursor-pointer"
+                    >
                       <td className="px-6 py-4 text-xs text-gray-500">{t.date}</td>
                       <td className="px-6 py-4">
-                        <Link href={`/stocks/${t.ticker}`} className="text-sm font-black group-hover:text-blue-400 transition-colors">
+                        <span className="text-sm font-black group-hover:text-blue-400 transition-colors">
                           {t.ticker}
-                        </Link>
+                        </span>
                       </td>
                       <td className="px-6 py-4 text-center">
                         <span className={`text-[9px] font-black px-3 py-1 rounded-full uppercase tracking-widest ${
@@ -327,6 +334,9 @@ export default function PortfolioPage() {
                       </td>
                       <td className="px-6 py-4 text-xs text-gray-500 italic max-w-[160px] truncate">
                         {t.notes || '—'}
+                      </td>
+                      <td className="px-6 py-4 text-right">
+                        <span className="text-gray-700 group-hover:text-white transition-colors text-sm font-black">→</span>
                       </td>
                     </tr>
                   ))

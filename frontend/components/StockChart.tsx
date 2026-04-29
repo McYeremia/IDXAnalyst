@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef } from "react";
-import { createChart, CandlestickSeries, LineSeries, ColorType } from "lightweight-charts";
+import { createChart, createSeriesMarkers, CandlestickSeries, LineSeries, ColorType } from "lightweight-charts";
 
 interface OHLCVRow {
   date: string;
@@ -20,16 +20,20 @@ interface Props {
   showEMA12?: boolean;
   height?: number;
   transparent?: boolean;
+  markerDate?: string;
+  markerColor?: string;
 }
 
-export default function StockChart({ 
-  data, 
-  indicators = {}, 
-  showMA20 = false, 
-  showMA50 = false, 
+export default function StockChart({
+  data,
+  indicators = {},
+  showMA20 = false,
+  showMA50 = false,
   showEMA12 = false,
   height = 420,
-  transparent = false
+  transparent = false,
+  markerDate,
+  markerColor = '#f59e0b',
 }: Props) {
   const chartRef = useRef<HTMLDivElement>(null);
 
@@ -85,6 +89,21 @@ export default function StockChart({
     }));
     candles.setData(candleData);
 
+    // Trade marker (lightweight-charts v5 API)
+    if (markerDate) {
+      const markerExists = candleData.some(c => c.time === markerDate);
+      if (markerExists) {
+        const isBuy = markerColor === '#22c55e';
+        createSeriesMarkers(candles, [{
+          time: markerDate as any,
+          position: isBuy ? 'belowBar' : 'aboveBar',
+          color: markerColor,
+          shape: isBuy ? 'arrowUp' : 'arrowDown',
+          text: isBuy ? 'BUY' : 'SELL',
+        }]);
+      }
+    }
+
     // MA20 overlay
     if (showMA20 && data.length >= 20) {
       const ma20 = chart.addSeries(LineSeries, { color: "#f59e0b", lineWidth: 1 });
@@ -131,7 +150,7 @@ export default function StockChart({
       window.removeEventListener("resize", handleResize);
       chart.remove();
     };
-  }, [data, showMA20, showMA50, showEMA12, height, transparent]);
+  }, [data, showMA20, showMA50, showEMA12, height, transparent, markerDate, markerColor]);
 
   return <div ref={chartRef} className="w-full" />;
 }

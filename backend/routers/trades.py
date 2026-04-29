@@ -212,6 +212,103 @@ def get_trade_history(agent: str = "USER", db: Session = Depends(get_db)):
     return sorted(agent_result, key=lambda x: (x["date"], x["id"]), reverse=True)
 
 
+@router.get("/{trade_id}")
+def get_trade_detail(trade_id: int, db: Session = Depends(get_db)):
+    trade = db.query(models.TradeLog).filter(models.TradeLog.id == trade_id).first()
+    if not trade:
+        raise HTTPException(status_code=404, detail="Trade not found")
+
+    if trade.trade_type == "AUTO_GEMINI": agent = "GEMINI"
+    elif trade.trade_type == "AUTO_CLAUDE": agent = "CLAUDE"
+    else: agent = "USER"
+
+    stock = trade.stock
+    ticker = stock.ticker
+    qty_shares = trade.quantity * 100
+
+    # Hitung avg_buy_price dan P&L dengan replay semua trade sebelumnya
+    prior_trades = (
+        db.query(models.TradeLog)
+        .filter(
+            (models.TradeLog.date < trade.date) |
+            ((models.TradeLog.date == trade.date) & (models.TradeLog.id <= trade.id))
+        )
+        .order_by(models.TradeLog.date, models.TradeLog.id)
+        .all()
+    )
+
+    pos: dict = {}
+    pnl = pnl_pct = avg_buy_at_trade = None
+
+    for t in prior_trades:
+        if t.trade_type == "AUTO_GEMINI": t_agent = "GEMINI"
+        elif t.trade_type == "AUTO_CLAUDE": t_agent = "CLAUDE"
+        else: t_agent = "USER"
+        if t_agent != agent:
+            continue
+
+        t_ticker = t.stock.ticker
+        t_qty = t.quantity * 100
+
+        if t.action == "BUY":
+            if t_ticker not in pos:
+                pos[t_ticker] = {"shares": 0, "avg_price": 0.0}
+            total_shares = pos[t_ticker]["shares"] + t_qty
+            total_cost = pos[t_ticker]["shares"] * pos[t_ticker]["avg_price"] + t_qty * t.price
+            pos[t_ticker]["shares"] = total_shares
+            pos[t_ticker]["avg_price"] = total_cost / total_shares
+            if t.id == trade.id:
+                avg_buy_at_trade = t.price
+        elif t.action == "SELL":
+            if t_ticker in pos and pos[t_ticker]["avg_price"] > 0:
+                if t.id == trade.id:
+                    avg_buy_at_trade = pos[t_ticker]["avg_price"]
+                    pnl = (t.price - pos[t_ticker]["avg_price"]) * t_qty
+                    pnl_pct = ((t.price - pos[t_ticker]["avg_price"]) / pos[t_ticker]["avg_price"]) * 100
+                pos[t_ticker]["shares"] -= t_qty
+                if pos[t_ticker]["shares"] <= 0:
+                    del pos[t_ticker]
+
+    # OHLCV 90 hari sekitar tanggal trade untuk chart konteks
+    from datetime import timedelta
+    date_from = trade.date - timedelta(days=90)
+    date_to   = trade.date + timedelta(days=14)
+    ohlcv_rows = (
+        db.query(models.OHLCVDaily)
+        .filter(
+            models.OHLCVDaily.stock_id == stock.id,
+            models.OHLCVDaily.date >= date_from,
+            models.OHLCVDaily.date <= date_to,
+        )
+        .order_by(models.OHLCVDaily.date)
+        .all()
+    )
+
+    return {
+        "id": trade.id,
+        "ticker": ticker,
+        "name": stock.name,
+        "sector": stock.sector or "",
+        "agent": agent,
+        "action": trade.action,
+        "date": str(trade.date),
+        "price": trade.price,
+        "quantity_lots": trade.quantity,
+        "quantity_shares": qty_shares,
+        "total_value": round(trade.price * qty_shares, 2),
+        "avg_buy_price": round(avg_buy_at_trade, 2) if avg_buy_at_trade else None,
+        "pnl": round(pnl, 2) if pnl is not None else None,
+        "pnl_pct": round(pnl_pct, 2) if pnl_pct is not None else None,
+        "strategy": trade.strategy_id or "MANUAL",
+        "notes": trade.notes or "",
+        "ohlcv": [
+            {"date": str(r.date), "open": r.open, "high": r.high,
+             "low": r.low, "close": r.close, "volume": r.volume}
+            for r in ohlcv_rows
+        ],
+    }
+
+
 @router.post("")
 def create_trade(req: TradeRequest, db: Session = Depends(get_db)):
     stock = db.query(models.Stock).filter(models.Stock.ticker == req.ticker.upper()).first()

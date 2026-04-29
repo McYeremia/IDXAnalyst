@@ -203,4 +203,27 @@ export const api = {
     const res = await fetch(`${API_BASE_URL}/trades/history?agent=${agent}`);
     return res.json();
   },
+
+  async getTradeDetail(id: number): Promise<{
+    id: number;
+    ticker: string;
+    name: string;
+    sector: string;
+    agent: 'USER' | 'GEMINI' | 'CLAUDE';
+    action: 'BUY' | 'SELL';
+    date: string;
+    price: number;
+    quantity_lots: number;
+    quantity_shares: number;
+    total_value: number;
+    avg_buy_price: number | null;
+    pnl: number | null;
+    pnl_pct: number | null;
+    strategy: string;
+    notes: string;
+    ohlcv: { date: string; open: number; high: number; low: number; close: number; volume: number }[];
+  }> {
+    const res = await fetch(`${API_BASE_URL}/trades/${id}`);
+    return res.json();
+  },
 };
