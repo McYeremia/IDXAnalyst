@@ -1,0 +1,33 @@
+{
+  "ticker": "INET",
+  "trained_at": "2026-04-29T22:36:12.878256",
+  "samples_train": 484,
+  "samples_test": 121,
+  "accuracy": 0.4959,
+  "auc": 0.5033,
+  "feature_importance": {
+    "RSI (14)": 0.04201,
+    "MACD Histogram": 0.07151,
+    "MACD Line": 0.08741,
+    "Stochastic %K": 0.05854,
+    "Stochastic %D": 0.07532,
+    "Bollinger Position": 0.03136,
+    "Jarak MA20": 0.03882,
+    "Jarak MA50": 0.06701,
+    "Volume Ratio": 0.05644,
+    "Return 1 Hari": 0.01544,
+    "Return 3 Hari": 0.07484,
+    "Return 5 Hari": 0.04367,
+    "Return 10 Hari": 0.03841,
+    "Return 20 Hari": 0.07738,
+    "Volatilitas 10H": 0.09058,
+    "ATR Ratio": 0.13127,
+    "P/E Ratio": 0.0,
+    "P/B Ratio": 0.0,
+    "Dividend Yield": 0.0
+  },
+  "class_balance": {
+    "pct_up": 0.3868,
+    "pct_down": 0.6132
+  }
+}

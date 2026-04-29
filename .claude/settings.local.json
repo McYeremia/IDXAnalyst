@@ -14,7 +14,10 @@
       "mcp__IDXAnalyst__execute_ai_trade",
       "Bash(grep -E \"\\\\.\\(json|yml|yaml|env|config\\)$\")",
       "mcp__IDXAnalyst__get_agent_context",
-      "mcp__IDXAnalyst__set_position_target"
+      "mcp__IDXAnalyst__set_position_target",
+      "Bash(.\\\\venv\\\\Scripts\\\\pip.exe install *)",
+      "Bash(venv/Scripts/pip.exe install *)",
+      "Bash(C:\\\\10. Belajar\\\\01. Analysis Saham\\\\IDXAnalyst\\\\backend\\\\venv\\\\Scripts\\\\python.exe *)"
     ]
   },
   "enableAllProjectMcpServers": true,

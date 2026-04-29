@@ -204,6 +204,47 @@ export const api = {
     return res.json();
   },
 
+  async getMlStatus(ticker: string): Promise<{
+    trained: boolean;
+    trained_at?: string;
+    accuracy?: number;
+    auc?: number;
+  }> {
+    const res = await fetch(`${API_BASE_URL}/stocks/${ticker}/ml/status`);
+    return res.json();
+  },
+
+  async trainMlModel(ticker: string): Promise<{
+    status: string;
+    accuracy?: number;
+    auc?: number;
+    samples_train?: number;
+    message?: string;
+  }> {
+    const res = await fetch(`${API_BASE_URL}/stocks/${ticker}/ml/train`, { method: 'POST' });
+    return res.json();
+  },
+
+  async getMlPrediction(ticker: string): Promise<{
+    status: string;
+    direction?: string;
+    dir_color?: string;
+    recommendation?: string;
+    probability_up?: number;
+    probability_down?: number;
+    confidence?: number;
+    horizon_days?: number;
+    top_features?: { name: string; importance: number }[];
+    model_accuracy?: number;
+    model_auc?: number;
+    trained_at?: string;
+    samples_train?: number;
+    message?: string;
+  }> {
+    const res = await fetch(`${API_BASE_URL}/stocks/${ticker}/ml/predict`);
+    return res.json();
+  },
+
   async getTradeDetail(id: number): Promise<{
     id: number;
     ticker: string;

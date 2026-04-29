@@ -41,6 +41,14 @@ export default function TradingTerminalPage() {
   const [indicators, setIndicators] = useState<Indicators | null>(null);
   const [portfolio, setPortfolio] = useState<any | null>(null);
   const [loading, setLoading] = useState(true);
+
+  // ML state
+  type MlResult = Awaited<ReturnType<typeof api.getMlPrediction>>;
+  type MlStatus = Awaited<ReturnType<typeof api.getMlStatus>>;
+  const [mlResult, setMlResult] = useState<MlResult | null>(null);
+  const [mlStatus, setMlStatus] = useState<MlStatus | null>(null);
+  const [mlLoading, setMlLoading] = useState(false);
+  const [mlTraining, setMlTraining] = useState(false);
   
   // Professional Order State
   const [orderSide, setOrderSide] = useState<'BUY' | 'SELL'>('BUY');
@@ -65,20 +73,46 @@ export default function TradingTerminalPage() {
     if (!ticker) return;
     setLoading(true);
     try {
-      const [ohlcvData, indData, portfolioData] = await Promise.all([
+      const [ohlcvData, indData, portfolioData, status] = await Promise.all([
         api.getOHLCV(ticker),
         api.getIndicators(ticker),
-        api.getPortfolio()
+        api.getPortfolio(),
+        api.getMlStatus(ticker),
       ]);
       setOhlcv(ohlcvData.data || []);
       setIndicators(indData.indicators || null);
       setPortfolio(portfolioData.USER.assets.find((p: any) => p.ticker === ticker) || null);
+      setMlStatus(status);
+      // Jika model sudah ada, langsung ambil prediksi
+      if (status.trained) {
+        setMlLoading(true);
+        api.getMlPrediction(ticker).then(setMlResult).finally(() => setMlLoading(false));
+      }
     } catch (err) {
       console.error(err);
     } finally {
       setLoading(false);
     }
   }, [ticker]);
+
+  const handleMlTrain = async () => {
+    setMlTraining(true);
+    setMlResult(null);
+    try {
+      const res = await api.trainMlModel(ticker);
+      if (res.status === 'trained') {
+        setMlStatus({ trained: true, trained_at: new Date().toISOString(), accuracy: res.accuracy, auc: res.auc });
+        setMlLoading(true);
+        api.getMlPrediction(ticker).then(setMlResult).finally(() => setMlLoading(false));
+      } else {
+        setMlResult({ status: 'error', message: res.message });
+      }
+    } catch {
+      setMlResult({ status: 'error', message: 'Gagal menghubungi server' });
+    } finally {
+      setMlTraining(false);
+    }
+  };
 
   useEffect(() => {
     fetchData();
@@ -251,6 +285,157 @@ export default function TradingTerminalPage() {
               ) : (
                 <StockChart data={ohlcv} indicators={indicators ?? {}} showMA20={showMA20} showMA50={showMA50} showEMA12={showEMA12} />
               )}
+           </div>
+
+           {/* ── ML PREDICTION CARD ── */}
+           <div className="mb-10 bg-white/[0.02] border border-white/5 rounded-[2rem] overflow-hidden shadow-2xl">
+             <div className="flex items-center justify-between px-8 py-5 border-b border-white/5 bg-white/[0.01]">
+               <div className="flex items-center gap-3">
+                 <span className="w-2 h-2 rounded-full bg-purple-500" />
+                 <h2 className="text-[9px] font-black uppercase tracking-[0.4em] text-purple-400">ML Price Prediction</h2>
+                 <span className="text-[8px] font-mono text-gray-700 bg-white/5 px-2 py-0.5 rounded-full">5-Day Horizon</span>
+               </div>
+               <div className="flex items-center gap-3">
+                 {mlStatus?.trained && mlStatus.trained_at && (
+                   <span className="text-[8px] font-mono text-gray-700 hidden md:block">
+                     Trained: {new Date(mlStatus.trained_at).toLocaleDateString('id-ID')}
+                     {mlStatus.accuracy ? ` · Acc ${(mlStatus.accuracy * 100).toFixed(1)}%` : ''}
+                   </span>
+                 )}
+                 <button
+                   onClick={handleMlTrain}
+                   disabled={mlTraining}
+                   className="text-[8px] font-black uppercase tracking-widest px-4 py-1.5 rounded-full border border-purple-500/30 text-purple-400 bg-purple-500/5 hover:bg-purple-500/10 disabled:opacity-40 transition-all"
+                 >
+                   {mlTraining ? 'TRAINING...' : mlStatus?.trained ? 'RE-TRAIN' : 'TRAIN MODEL'}
+                 </button>
+               </div>
+             </div>
+
+             <div className="p-8">
+               {/* Belum di-train */}
+               {!mlStatus?.trained && !mlTraining && (
+                 <div className="flex flex-col items-center justify-center py-8 gap-3 opacity-50">
+                   <p className="text-xs font-mono text-gray-500">Model belum dilatih untuk saham ini.</p>
+                   <p className="text-[9px] text-gray-700">Klik TRAIN MODEL untuk memulai (~5 detik)</p>
+                 </div>
+               )}
+
+               {/* Sedang training */}
+               {mlTraining && (
+                 <div className="flex flex-col items-center justify-center py-8 gap-3">
+                   <div className="w-6 h-6 border-2 border-purple-500/30 border-t-purple-400 rounded-full animate-spin" />
+                   <p className="text-[9px] font-mono text-gray-500 uppercase tracking-widest animate-pulse">Melatih model GradientBoosting...</p>
+                 </div>
+               )}
+
+               {/* Loading prediksi */}
+               {mlLoading && !mlTraining && (
+                 <div className="flex items-center justify-center py-8">
+                   <p className="text-[9px] font-mono text-gray-600 animate-pulse uppercase tracking-widest">Menghitung prediksi...</p>
+                 </div>
+               )}
+
+               {/* Error */}
+               {mlResult?.status === 'error' && (
+                 <div className="text-red-400 text-xs font-mono py-4 text-center">{mlResult.message}</div>
+               )}
+
+               {/* Hasil prediksi */}
+               {mlResult?.status === 'ok' && !mlLoading && (
+                 <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+                   {/* Kolom kiri: Arah + Confidence */}
+                   <div>
+                     {/* Direction badge */}
+                     <div className={`inline-flex items-center gap-3 px-5 py-3 rounded-2xl border mb-5 ${
+                       mlResult.direction === 'BULLISH'
+                         ? 'bg-green-500/10 border-green-500/20 text-green-400'
+                         : mlResult.direction === 'BEARISH'
+                           ? 'bg-red-500/10 border-red-500/20 text-red-400'
+                           : 'bg-yellow-500/10 border-yellow-500/20 text-yellow-400'
+                     }`}>
+                       <span className="text-xl font-black">
+                         {mlResult.direction === 'BULLISH' ? '▲' : mlResult.direction === 'BEARISH' ? '▼' : '◆'}
+                       </span>
+                       <div>
+                         <p className="text-lg font-black tracking-tight leading-none">{mlResult.direction}</p>
+                         <p className="text-[8px] font-mono opacity-70 uppercase tracking-widest mt-0.5">Rekomendasi: {mlResult.recommendation}</p>
+                       </div>
+                     </div>
+
+                     {/* Confidence bar */}
+                     <div className="mb-5">
+                       <div className="flex justify-between items-center mb-2">
+                         <span className="text-[9px] font-black uppercase tracking-widest text-gray-500">Confidence</span>
+                         <span className="text-sm font-black font-mono text-white">{mlResult.confidence}%</span>
+                       </div>
+                       <div className="w-full bg-white/5 rounded-full h-2">
+                         <div
+                           className={`h-2 rounded-full transition-all duration-700 ${
+                             mlResult.direction === 'BULLISH' ? 'bg-green-500' :
+                             mlResult.direction === 'BEARISH' ? 'bg-red-500' : 'bg-yellow-500'
+                           }`}
+                           style={{ width: `${mlResult.confidence}%` }}
+                         />
+                       </div>
+                     </div>
+
+                     {/* Probabilitas naik/turun */}
+                     <div className="grid grid-cols-2 gap-3 mb-4">
+                       <div className="bg-green-500/5 border border-green-500/10 rounded-xl p-4 text-center">
+                         <p className="text-[8px] text-gray-600 uppercase tracking-widest mb-1 font-black">Prob. Naik</p>
+                         <p className="text-xl font-black font-mono text-green-400">
+                           {((mlResult.probability_up ?? 0) * 100).toFixed(1)}%
+                         </p>
+                       </div>
+                       <div className="bg-red-500/5 border border-red-500/10 rounded-xl p-4 text-center">
+                         <p className="text-[8px] text-gray-600 uppercase tracking-widest mb-1 font-black">Prob. Turun</p>
+                         <p className="text-xl font-black font-mono text-red-400">
+                           {((mlResult.probability_down ?? 0) * 100).toFixed(1)}%
+                         </p>
+                       </div>
+                     </div>
+
+                     {/* Model stats */}
+                     {mlResult.model_accuracy && (
+                       <div className="flex gap-4 text-[8px] font-mono text-gray-600">
+                         <span>Akurasi model: <span className="text-gray-400 font-black">{((mlResult.model_accuracy) * 100).toFixed(1)}%</span></span>
+                         {mlResult.model_auc && <span>AUC: <span className="text-gray-400 font-black">{mlResult.model_auc.toFixed(3)}</span></span>}
+                         {mlResult.samples_train && <span>Train: <span className="text-gray-400 font-black">{mlResult.samples_train} bar</span></span>}
+                       </div>
+                     )}
+                   </div>
+
+                   {/* Kolom kanan: Top Feature Drivers */}
+                   <div>
+                     <p className="text-[9px] font-black uppercase tracking-widest text-gray-500 mb-4">Top Faktor Penentu</p>
+                     <div className="space-y-3">
+                       {mlResult.top_features?.map((f, i) => {
+                         const maxImp = mlResult.top_features![0].importance;
+                         const pct    = Math.round((f.importance / maxImp) * 100);
+                         return (
+                           <div key={i}>
+                             <div className="flex justify-between items-center mb-1">
+                               <span className="text-[9px] font-bold text-gray-400">{f.name}</span>
+                               <span className="text-[8px] font-mono text-gray-600">{(f.importance * 100).toFixed(1)}%</span>
+                             </div>
+                             <div className="w-full bg-white/5 rounded-full h-1.5">
+                               <div
+                                 className="h-1.5 rounded-full bg-purple-500/60"
+                                 style={{ width: `${pct}%` }}
+                               />
+                             </div>
+                           </div>
+                         );
+                       })}
+                     </div>
+                     <p className="text-[7px] font-mono text-gray-700 mt-5 leading-relaxed">
+                       ⚠ Prediksi berbasis probabilitas historis — bukan jaminan. Selalu gunakan analisa teknikal dan fundamental sebagai konfirmasi.
+                     </p>
+                   </div>
+                 </div>
+               )}
+             </div>
            </div>
 
            <h2 className="text-sm font-black font-mono uppercase tracking-[0.5em] text-gray-700 mb-8 flex items-center gap-6">

@@ -1,0 +1,33 @@
+{
+  "ticker": "BUMI",
+  "trained_at": "2026-04-29T22:37:21.991877",
+  "samples_train": 919,
+  "samples_test": 230,
+  "accuracy": 0.5348,
+  "auc": 0.5478,
+  "feature_importance": {
+    "RSI (14)": 0.04849,
+    "MACD Histogram": 0.09873,
+    "MACD Line": 0.10904,
+    "Stochastic %K": 0.04398,
+    "Stochastic %D": 0.04569,
+    "Bollinger Position": 0.02683,
+    "Jarak MA20": 0.02661,
+    "Jarak MA50": 0.07723,
+    "Volume Ratio": 0.05352,
+    "Return 1 Hari": 0.03164,
+    "Return 3 Hari": 0.07548,
+    "Return 5 Hari": 0.04626,
+    "Return 10 Hari": 0.05513,
+    "Return 20 Hari": 0.05537,
+    "Volatilitas 10H": 0.1308,
+    "ATR Ratio": 0.0752,
+    "P/E Ratio": 0.0,
+    "P/B Ratio": 0.0,
+    "Dividend Yield": 0.0
+  },
+  "class_balance": {
+    "pct_up": 0.4238,
+    "pct_down": 0.5762
+  }
+}
