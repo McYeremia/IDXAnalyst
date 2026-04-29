@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { api, Stock, MultiPortfolioResponse, OHLCV } from '@/lib/api';
 import Link from 'next/link';
 import dynamic from 'next/dynamic';
@@ -15,6 +15,17 @@ interface Signal {
   date: string;
 }
 
+interface SyncStatus {
+  is_running: boolean;
+  phase: string;
+  phase_label: string;
+  total: number;
+  done: number;
+  current: string;
+  errors: number;
+  message: string;
+}
+
 export default function Dashboard() {
   const [stocks, setStocks] = useState<Stock[]>([]);
   const [portfolio, setPortfolio] = useState<MultiPortfolioResponse | null>(null);
@@ -23,6 +34,8 @@ export default function Dashboard() {
   const [loading, setLoading] = useState(true);
   const [isScanning, setIsRunningScan] = useState(false);
   const [isSyncing, setIsSyncing] = useState(false);
+  const [syncStatus, setSyncStatus] = useState<SyncStatus | null>(null);
+  const syncPollRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const [searchTerm, setSearchTerm] = useState('');
 
   const [newTicker, setNewTicker] = useState('');
@@ -49,8 +62,12 @@ export default function Dashboard() {
 
   useEffect(() => {
     loadData();
-    const interval = setInterval(loadData, 30000); 
+    const interval = setInterval(loadData, 30000);
     return () => clearInterval(interval);
+  }, []);
+
+  useEffect(() => {
+    return () => { if (syncPollRef.current) clearInterval(syncPollRef.current); };
   }, []);
 
   const handleScan = async () => {
@@ -66,13 +83,32 @@ export default function Dashboard() {
   };
 
   const handleSync = async () => {
+    if (syncPollRef.current) clearInterval(syncPollRef.current);
     setIsSyncing(true);
+    setSyncStatus(null);
     try {
       await api.refreshData();
-      await loadData();
+
+      syncPollRef.current = setInterval(async () => {
+        try {
+          const status = await api.getSyncStatus();
+          setSyncStatus(status);
+          if (!status.is_running) {
+            clearInterval(syncPollRef.current!);
+            syncPollRef.current = null;
+            setIsSyncing(false);
+            await loadData();
+            // Auto-hide done toast setelah 4 detik
+            setTimeout(() => setSyncStatus(null), 4000);
+          }
+        } catch {
+          clearInterval(syncPollRef.current!);
+          syncPollRef.current = null;
+          setIsSyncing(false);
+        }
+      }, 1000);
     } catch (err) {
-      alert("Sync failed.");
-    } finally {
+      console.error("Sync error:", err);
       setIsSyncing(false);
     }
   };
@@ -236,6 +272,63 @@ export default function Dashboard() {
         .custom-scrollbar::-webkit-scrollbar { width: 4px; }
         .custom-scrollbar::-webkit-scrollbar-thumb { background: #333; border-radius: 10px; }
       `}</style>
+
+      {/* Sync Progress Toast */}
+      {isSyncing && (
+        <div className="fixed bottom-6 right-6 z-50 w-80 bg-[#0d0d0d] border border-white/10 rounded-2xl p-5 shadow-2xl">
+          <div className="flex items-center justify-between mb-3">
+            <div className="flex items-center gap-2">
+              <span className="inline-block w-2 h-2 rounded-full bg-teal-400 animate-pulse" />
+              <span className="text-[9px] font-black text-teal-400 uppercase tracking-widest">
+                {syncStatus?.phase_label || 'Memulai sync...'}
+              </span>
+            </div>
+            {syncStatus && syncStatus.total > 0 && (
+              <span className="text-[9px] font-mono text-gray-500">
+                {syncStatus.done} / {syncStatus.total}
+              </span>
+            )}
+          </div>
+
+          {/* Progress bar */}
+          <div className="w-full bg-white/5 rounded-full h-1.5 mb-3">
+            <div
+              className="bg-teal-500 h-1.5 rounded-full transition-all duration-500"
+              style={{
+                width: syncStatus && syncStatus.total > 0
+                  ? `${Math.round((syncStatus.done / syncStatus.total) * 100)}%`
+                  : '5%'
+              }}
+            />
+          </div>
+
+          <div className="flex items-center justify-between">
+            {syncStatus?.current ? (
+              <p className="text-[8px] font-mono text-gray-600 truncate flex-1">
+                <span className="text-gray-500">→</span> {syncStatus.current}
+              </p>
+            ) : (
+              <p className="text-[8px] font-mono text-gray-700 italic">Menghubungi server...</p>
+            )}
+            {syncStatus && syncStatus.errors > 0 && (
+              <span className="text-[8px] font-mono text-red-500 ml-2 shrink-0">
+                {syncStatus.errors} error
+              </span>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* Sync Done Toast — tampil sebentar setelah selesai */}
+      {!isSyncing && syncStatus?.phase === 'done' && (
+        <div className="fixed bottom-6 right-6 z-50 w-80 bg-[#0d0d0d] border border-teal-500/30 rounded-2xl p-5 shadow-2xl">
+          <div className="flex items-center gap-2">
+            <span className="text-teal-400 text-sm">✓</span>
+            <span className="text-[9px] font-black text-teal-400 uppercase tracking-widest">Sync Selesai</span>
+          </div>
+          <p className="text-[8px] font-mono text-gray-500 mt-1">{syncStatus.message}</p>
+        </div>
+      )}
     </main>
   );
 }

@@ -45,6 +45,15 @@ def save_ohlcv(db: Session, stock: models.Stock, df: pd.DataFrame) -> int:
         return float(val)
 
     cutoff = date.today() - timedelta(days=5)
+
+    # 1 query untuk semua existing dates — hindari N SELECT queries
+    existing_rows = {
+        r.date: r
+        for r in db.query(models.OHLCVDaily)
+        .filter(models.OHLCVDaily.stock_id == stock.id)
+        .all()
+    }
+
     count = 0
     for index, row in df.iterrows():
         try:
@@ -57,11 +66,7 @@ def save_ohlcv(db: Session, stock: models.Stock, df: pd.DataFrame) -> int:
             volume = int(get_val(row["Volume"]))
             adj    = get_val(row["Adj Close"]) if "Adj Close" in row else close
 
-            exists = db.query(models.OHLCVDaily).filter(
-                models.OHLCVDaily.stock_id == stock.id,
-                models.OHLCVDaily.date == d
-            ).first()
-
+            exists = existing_rows.get(d)
             if exists:
                 # Upsert untuk 5 hari terakhir — harga bisa berubah jika
                 # sebelumnya di-fetch sebelum market close
@@ -73,20 +78,21 @@ def save_ohlcv(db: Session, stock: models.Stock, df: pd.DataFrame) -> int:
                     exists.volume    = volume
                     exists.adj_close = adj
             else:
-                db.add(models.OHLCVDaily(
+                new_row = models.OHLCVDaily(
                     stock_id=stock.id, date=d,
                     open=open_, high=high, low=low,
                     close=close, volume=volume, adj_close=adj
-                ))
+                )
+                db.add(new_row)
+                existing_rows[d] = new_row
                 count += 1
         except Exception:
             continue
-            
+
     db.commit()
-    # Update last_updated timestamp di tabel Stock
     stock.last_updated = datetime.now()
     db.commit()
-    
+
     return count
 
 def update_stock_fundamentals(db: Session, stock: models.Stock):

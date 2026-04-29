@@ -147,6 +147,20 @@ export const api = {
     return res.json();
   },
 
+  async getSyncStatus(): Promise<{
+    is_running: boolean;
+    phase: string;
+    phase_label: string;
+    total: number;
+    done: number;
+    current: string;
+    errors: number;
+    message: string;
+  }> {
+    const res = await fetch(`${API_BASE_URL}/stocks/sync-status`);
+    return res.json();
+  },
+
   async runBacktest(ticker: string, strategyId: string, capital: number = 10_000_000): Promise<BacktestResult> {
     const res = await fetch(`${API_BASE_URL}/backtest/run/${ticker}/${strategyId}?capital=${capital}`);
     return res.json();

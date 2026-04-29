@@ -83,8 +83,7 @@ set_position_target(
 
 ## Aturan Trading
 
-1. **Jangan over-invest** — sisakan minimal Rp 1.000.000 kas
-2. **Max per posisi** — tidak lebih dari 25% total modal (Rp 3.750.000)
+1. **Max per posisi** — tidak lebih dari 25% total modal (Rp 3.750.000)
 3. **Selalu beri reasoning** di field `notes` — ini penting untuk transparansi
 4. **Bebas membuat strategi sendiri** — tidak harus pakai strategi yang ada
 5. **Pertimbangkan fundamental** — PE ratio, PBV, dividend yield sangat relevan untuk saham IDX

@@ -1,8 +1,9 @@
+import threading
 from datetime import date, timedelta
 from typing import Optional
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 from sqlalchemy import desc, func
 import yfinance as yf
@@ -13,6 +14,18 @@ import services.indicators as ind_svc
 from database import get_db
 
 router = APIRouter(prefix="/stocks", tags=["stocks"])
+
+_sync_lock = threading.Lock()
+_sync_state: dict = {
+    "is_running": False,
+    "phase": "",          # "fetch" | "save" | "done" | "error"
+    "phase_label": "",
+    "total": 0,
+    "done": 0,
+    "current": "",
+    "errors": 0,
+    "message": "",
+}
 
 
 @router.get("")
@@ -77,6 +90,12 @@ def get_ai_signals(db: Session = Depends(get_db)):
     ]
 
 
+@router.get("/sync-status")
+def get_sync_status():
+    with _sync_lock:
+        return dict(_sync_state)
+
+
 def _fetch_only(ticker: str, start_date: date | None) -> tuple:
     """Hanya fetch HTTP dari Yahoo Finance — tanpa sentuh DB sama sekali."""
     try:
@@ -89,55 +108,87 @@ def _fetch_only(ticker: str, start_date: date | None) -> tuple:
         return ticker, None, str(e)
 
 
+def _set_sync(updates: dict):
+    with _sync_lock:
+        _sync_state.update(updates)
+
+
+def _do_refresh_all():
+    """Sync semua saham — dijalankan di background task dengan session sendiri."""
+    from database import SessionLocal
+    db = SessionLocal()
+    try:
+        _set_sync({
+            "is_running": True, "phase": "init", "phase_label": "Inisialisasi...",
+            "total": 0, "done": 0, "current": "", "errors": 0, "message": "",
+        })
+
+        fetcher.seed_stocks(db)
+        stocks = db.query(models.Stock).all()
+        total = len(stocks)
+
+        latest_map: dict[int, date] = dict(
+            db.query(models.OHLCVDaily.stock_id, func.max(models.OHLCVDaily.date))
+            .group_by(models.OHLCVDaily.stock_id)
+            .all()
+        )
+
+        fetch_tasks = []
+        for stock in stocks:
+            ld = latest_map.get(stock.id)
+            start = ld if ld is not None and ld <= date.today() else None
+            fetch_tasks.append((stock, start))
+
+        # Fase 1: Fetch HTTP paralel
+        _set_sync({"phase": "fetch", "phase_label": "Mengambil data dari Yahoo Finance", "total": total, "done": 0})
+
+        fetched: dict[int, tuple] = {}
+        with ThreadPoolExecutor(max_workers=10) as executor:
+            futures = {
+                executor.submit(_fetch_only, stock.ticker, start): stock
+                for stock, start in fetch_tasks
+            }
+            for future in as_completed(futures):
+                stock = futures[future]
+                _, df, err = future.result()
+                fetched[stock.id] = (df, err)
+                with _sync_lock:
+                    _sync_state["done"] += 1
+                    _sync_state["current"] = stock.ticker
+                    if err:
+                        _sync_state["errors"] += 1
+
+        # Fase 2: Write DB sequential
+        _set_sync({"phase": "save", "phase_label": "Menyimpan ke database", "total": total, "done": 0})
+
+        for stock in stocks:
+            df, err = fetched.get(stock.id, (None, "fetch not found"))
+            with _sync_lock:
+                _sync_state["current"] = stock.ticker
+            if not err and df is not None and not df.empty:
+                try:
+                    fetcher.save_ohlcv(db, stock, df)
+                except Exception:
+                    with _sync_lock:
+                        _sync_state["errors"] += 1
+            with _sync_lock:
+                _sync_state["done"] += 1
+
+        _set_sync({"is_running": False, "phase": "done", "phase_label": "Selesai", "current": "", "message": f"{total} saham diperbarui"})
+        print(f"LOG: Background sync selesai — {total} saham diproses.")
+    except Exception as e:
+        _set_sync({"is_running": False, "phase": "error", "phase_label": "Error", "message": str(e)})
+    finally:
+        db.close()
+
+
 @router.post("/refresh")
-def refresh_all(db: Session = Depends(get_db)):
-    fetcher.seed_stocks(db)
-    stocks = db.query(models.Stock).all()
-
-    # Ambil tanggal terakhir semua saham sekaligus — 1 query agregat
-    from sqlalchemy import func
-    latest_map: dict[int, date] = dict(
-        db.query(models.OHLCVDaily.stock_id, func.max(models.OHLCVDaily.date))
-        .group_by(models.OHLCVDaily.stock_id)
-        .all()
-    )
-
-    # Tentukan start_date per saham (tanpa buka koneksi baru)
-    fetch_tasks = []
-    for stock in stocks:
-        ld = latest_map.get(stock.id)
-        start = ld if ld is not None and ld <= date.today() else None
-        fetch_tasks.append((stock, start))
-
-    # --- FASE 1: Fetch HTTP paralel, TANPA DB ---
-    fetched: dict[int, tuple] = {}   # stock_id -> (df, error)
-    with ThreadPoolExecutor(max_workers=10) as executor:
-        futures = {
-            executor.submit(_fetch_only, stock.ticker, start): stock
-            for stock, start in fetch_tasks
-        }
-        for future in as_completed(futures):
-            stock = futures[future]
-            _, df, err = future.result()
-            fetched[stock.id] = (df, err)
-
-    # --- FASE 2: Write DB sequential — SQLite hanya 1 writer ---
-    results = {}
-    for stock in stocks:
-        df, err = fetched.get(stock.id, (None, "fetch not found"))
-        if err:
-            results[stock.ticker] = {"status": "error", "error": err}
-            continue
-        if df is None or df.empty:
-            results[stock.ticker] = {"status": "ok", "new_rows": 0, "note": "no data"}
-            continue
-        try:
-            count = fetcher.save_ohlcv(db, stock, df)
-            results[stock.ticker] = {"status": "ok", "new_rows": count}
-        except Exception as e:
-            results[stock.ticker] = {"status": "error", "error": str(e)}
-
-    return results
+def refresh_all(background_tasks: BackgroundTasks):
+    with _sync_lock:
+        if _sync_state["is_running"]:
+            return {"status": "already_running", "message": "Sync sedang berjalan"}
+    background_tasks.add_task(_do_refresh_all)
+    return {"status": "started", "message": "Sync dimulai di background"}
 
 
 @router.post("/scan")

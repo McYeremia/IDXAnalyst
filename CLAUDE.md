@@ -43,8 +43,7 @@ Setelah membuka posisi baru, gunakan `set_position_target` untuk menyimpan:
 - `notes`: reasoning target tersebut
 
 ## Aturan
-1. Sisakan minimal Rp 1.000.000 kas
-2. Maksimal 25% modal per posisi
+1. Maksimal 25% modal per posisi
 3. Selalu isi `notes` dengan reasoning spesifik
 4. Bebas membuat strategi sendiri atau kombinasi
 5. **Wajib set target** setelah setiap posisi dibuka — agar sesi berikutnya tahu rencana exit
