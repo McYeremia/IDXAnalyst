@@ -136,6 +136,18 @@ export default function PortfolioPage() {
       color: DONUT_COLORS[i % DONUT_COLORS.length],
     }));
 
+  let _angle = -Math.PI / 2;
+  const donutSegments = allocData.map(seg => {
+    const start = _angle;
+    const end = _angle + (seg.pct / 100) * 2 * Math.PI;
+    _angle = end;
+    return { ...seg, pathD: buildDonutPath(start, end, 100, 100, 80, 55) };
+  });
+
+  const maxMonthlyAbs = monthlyRows.length > 0
+    ? Math.max(...monthlyRows.map(([, v]) => Math.abs(v)))
+    : 1;
+
   return (
     <main className="min-h-screen bg-[#050505] text-white p-6 md:p-10 pt-24 md:pt-28 text-left font-mono">
       <div className="max-w-7xl mx-auto">
@@ -201,6 +213,24 @@ export default function PortfolioPage() {
             </p>
           </div>
         </div>
+
+        {/* VIEW TOGGLE */}
+        <div className="flex gap-1 p-1 bg-white/5 rounded-2xl border border-white/10 w-fit mb-8 shadow-inner">
+          <button
+            onClick={() => setViewMode('portfolio')}
+            className={`px-5 py-2 rounded-xl text-[10px] font-black tracking-widest transition-all ${viewMode === 'portfolio' ? 'bg-white/10 text-white' : 'text-gray-500 hover:text-white'}`}
+          >
+            PORTFOLIO
+          </button>
+          <button
+            onClick={() => setViewMode('analytics')}
+            className={`px-5 py-2 rounded-xl text-[10px] font-black tracking-widest transition-all ${viewMode === 'analytics' ? 'bg-white/10 text-white' : 'text-gray-500 hover:text-white'}`}
+          >
+            ANALYTICS
+          </button>
+        </div>
+
+        {viewMode === 'portfolio' && (<>
 
         {/* GROWTH CHART */}
         <div className="bg-white/[0.01] border border-white/5 rounded-3xl p-8 mb-8 shadow-2xl">
@@ -391,6 +421,104 @@ export default function PortfolioPage() {
           </div>
         </div>
 
+        </>)}
+
+        {viewMode === 'analytics' && (
+          <div className="pb-20">
+            {/* RISK METRICS */}
+            <h2 className="text-xs font-black font-mono uppercase tracking-[0.4em] text-gray-500 mb-4 flex items-center gap-4">
+              <span className="w-8 h-px bg-white/10" />Risk Metrics<span className="flex-1 h-px bg-white/10" />
+            </h2>
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-10">
+              <div className="bg-white/[0.02] border border-white/5 p-6 rounded-2xl">
+                <p className="text-[9px] text-gray-500 uppercase tracking-widest mb-1 font-black">Win Rate</p>
+                <p className={`text-2xl font-black ${winRate !== null && winRate >= 50 ? 'text-green-400' : 'text-red-400'}`}>
+                  {winRate !== null ? `${winRate.toFixed(1)}%` : '—'}
+                </p>
+                <p className="text-[9px] text-gray-600 mt-1">{winCount} menang / {sellTrades.length} SELL</p>
+              </div>
+              <div className="bg-white/[0.02] border border-white/5 p-6 rounded-2xl">
+                <p className="text-[9px] text-gray-500 uppercase tracking-widest mb-1 font-black">Max Drawdown</p>
+                <p className="text-2xl font-black text-red-400">
+                  {maxDrawdownPct > 0 ? `-${maxDrawdownPct.toFixed(2)}%` : '—'}
+                </p>
+                <p className="text-[9px] text-gray-600 mt-1">dari puncak tertinggi</p>
+              </div>
+              <div className="bg-white/[0.02] border border-white/5 p-6 rounded-2xl">
+                <p className="text-[9px] text-gray-500 uppercase tracking-widest mb-1 font-black">Total Trades</p>
+                <p className="text-2xl font-black text-white">{history.length}</p>
+                <p className="text-[9px] text-gray-600 mt-1">{history.filter(t => t.action === 'BUY').length} BUY · {sellTrades.length} SELL</p>
+              </div>
+              <div className="bg-white/[0.02] border border-white/5 p-6 rounded-2xl">
+                <p className="text-[9px] text-gray-500 uppercase tracking-widest mb-1 font-black">Realized P&L</p>
+                <p className={`text-2xl font-black ${current.realized >= 0 ? 'text-green-400' : 'text-red-400'}`}>
+                  {current.realized >= 0 ? '+' : ''}Rp {Math.round(current.realized).toLocaleString('id-ID')}
+                </p>
+                <p className="text-[9px] text-gray-600 mt-1">dari transaksi SELL</p>
+              </div>
+            </div>
+
+            {/* ALLOCATION + MONTHLY P&L */}
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+              <div className="bg-white/[0.01] border border-white/5 rounded-3xl p-8">
+                <p className="text-[9px] font-black uppercase tracking-[0.4em] text-gray-500 mb-6">Alokasi Portofolio</p>
+                {allocData.length === 0 ? (
+                  <div className="h-40 flex items-center justify-center text-gray-700 text-xs uppercase font-black opacity-30 italic">Tidak ada posisi aktif</div>
+                ) : (
+                  <div className="flex items-center gap-8">
+                    <svg viewBox="0 0 200 200" className="w-40 h-40 shrink-0">
+                      {donutSegments.map(seg => (
+                        <path key={seg.ticker} d={seg.pathD} fill={seg.color} opacity={0.9} />
+                      ))}
+                      <circle cx="100" cy="100" r="40" fill="#050505" />
+                      <text x="100" y="97" textAnchor="middle" fill="white" fontSize="14" fontWeight="bold" fontFamily="monospace">
+                        {current.assets.length}
+                      </text>
+                      <text x="100" y="111" textAnchor="middle" fill="#555" fontSize="8" fontFamily="monospace">STOCKS</text>
+                    </svg>
+                    <div className="flex-1 space-y-2.5 min-w-0">
+                      {allocData.map(seg => (
+                        <div key={seg.ticker} className="flex items-center gap-2">
+                          <span className="w-2.5 h-2.5 rounded-full shrink-0" style={{ background: seg.color }} />
+                          <span className="text-xs font-black text-white shrink-0 w-16">{seg.ticker}</span>
+                          <div className="flex-1 bg-white/5 rounded-full h-1.5 min-w-0">
+                            <div className="h-1.5 rounded-full transition-all" style={{ width: `${seg.pct}%`, background: seg.color }} />
+                          </div>
+                          <span className="text-[9px] font-mono text-gray-500 shrink-0 w-10 text-right">{seg.pct.toFixed(1)}%</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              <div className="bg-white/[0.01] border border-white/5 rounded-3xl p-8">
+                <p className="text-[9px] font-black uppercase tracking-[0.4em] text-gray-500 mb-6">P&L Bulanan</p>
+                {monthlyRows.length === 0 ? (
+                  <div className="h-40 flex items-center justify-center text-gray-700 text-xs uppercase font-black opacity-30 italic">Belum ada transaksi SELL</div>
+                ) : (
+                  <div className="space-y-2 max-h-72 overflow-y-auto custom-scrollbar pr-1">
+                    {monthlyRows.map(([month, pnl]) => (
+                      <div key={month} className="flex items-center gap-4 py-2 border-b border-white/[0.04] last:border-0">
+                        <span className="text-xs font-black text-gray-400 shrink-0 w-16">{month}</span>
+                        <div className="flex-1 bg-white/5 rounded-full h-1.5">
+                          <div
+                            className={`h-1.5 rounded-full ${pnl >= 0 ? 'bg-green-500' : 'bg-red-500'}`}
+                            style={{ width: `${Math.min(100, Math.abs(pnl) / maxMonthlyAbs * 100)}%` }}
+                          />
+                        </div>
+                        <span className={`text-xs font-black font-mono shrink-0 w-36 text-right ${pnl >= 0 ? 'text-green-400' : 'text-red-400'}`}>
+                          {pnl >= 0 ? '+' : ''}Rp {Math.round(pnl).toLocaleString('id-ID')}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+        )}
+
       </div>
 
       {/* SELL MODAL */}
@@ -450,6 +578,10 @@ export default function PortfolioPage() {
           </div>
         </div>
       )}
+      <style jsx>{`
+        .custom-scrollbar::-webkit-scrollbar { width: 4px; }
+        .custom-scrollbar::-webkit-scrollbar-thumb { background: #333; border-radius: 10px; }
+      `}</style>
     </main>
   );
 }
