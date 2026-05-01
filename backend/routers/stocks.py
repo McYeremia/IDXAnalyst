@@ -95,6 +95,34 @@ def list_stocks(db: Session = Depends(get_db)):
 
 
 # Static paths must come BEFORE parameterized /{ticker} routes
+@router.get("/ihsg")
+def get_ihsg():
+    """Returns IHSG composite index latest price and daily change."""
+    try:
+        df = fetcher.fetch_ohlcv("^JKSE", period="5d")
+        if df is None or df.empty or len(df) < 2:
+            return {"price": None, "change": None, "change_pct": None, "date": None}
+
+        def to_f(val):
+            return float(val.iloc[0]) if hasattr(val, "iloc") else float(val)
+
+        latest_close = to_f(df["Close"].iloc[-1])
+        prev_close   = to_f(df["Close"].iloc[-2])
+        change       = latest_close - prev_close
+        change_pct   = (change / prev_close * 100) if prev_close > 0 else 0
+        latest_idx   = df.index[-1]
+        date_str     = latest_idx.strftime("%Y-%m-%d") if hasattr(latest_idx, "strftime") else str(latest_idx)
+
+        return {
+            "price":      round(latest_close, 2),
+            "change":     round(change, 2),
+            "change_pct": round(change_pct, 2),
+            "date":       date_str,
+        }
+    except Exception:
+        return {"price": None, "change": None, "change_pct": None, "date": None}
+
+
 @router.get("/signals")
 def get_ai_signals(db: Session = Depends(get_db)):
     signals = db.query(models.Signal).order_by(desc(models.Signal.created_at)).all()

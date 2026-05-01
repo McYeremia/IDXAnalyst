@@ -17,7 +17,12 @@
       "mcp__IDXAnalyst__set_position_target",
       "Bash(.\\\\venv\\\\Scripts\\\\pip.exe install *)",
       "Bash(venv/Scripts/pip.exe install *)",
-      "Bash(C:\\\\10. Belajar\\\\01. Analysis Saham\\\\IDXAnalyst\\\\backend\\\\venv\\\\Scripts\\\\python.exe *)"
+      "Bash(C:\\\\10. Belajar\\\\01. Analysis Saham\\\\IDXAnalyst\\\\backend\\\\venv\\\\Scripts\\\\python.exe *)",
+      "Bash(Get-ChildItem -Path \"C:\\\\10. Belajar\\\\01. Analysis Saham\\\\IDXAnalyst\" -Force)",
+      "Bash(Select-Object -Property Name, PSIsContainer)",
+      "Bash(npx next *)",
+      "Bash(curl -s -o /dev/null -w \"%{http_code}\" http://localhost:3000)",
+      "Bash(venv\\\\Scripts\\\\python.exe -c \"from routers.stocks import router; print\\('OK'\\)\")"
     ]
   },
   "enableAllProjectMcpServers": true,
