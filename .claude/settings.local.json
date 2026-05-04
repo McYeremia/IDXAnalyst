@@ -22,7 +22,8 @@
       "Bash(Select-Object -Property Name, PSIsContainer)",
       "Bash(npx next *)",
       "Bash(curl -s -o /dev/null -w \"%{http_code}\" http://localhost:3000)",
-      "Bash(venv\\\\Scripts\\\\python.exe -c \"from routers.stocks import router; print\\('OK'\\)\")"
+      "Bash(venv\\\\Scripts\\\\python.exe -c \"from routers.stocks import router; print\\('OK'\\)\")",
+      "WebSearch"
     ]
   },
   "enableAllProjectMcpServers": true,
