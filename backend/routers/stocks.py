@@ -132,10 +132,12 @@ def get_ai_signals(db: Session = Depends(get_db)):
         if ticker not in grouped:
             grouped[ticker] = {
                 "ticker": ticker,
+                "name": s.stock.name,
                 "type": s.type,
                 "strategies": [],
                 "max_strength": 0,
                 "date": s.created_at.strftime("%Y-%m-%d %H:%M"),
+                "market_cap": s.stock.market_cap,
             }
         grouped[ticker]["strategies"].append(s.strategy_id)
         if s.strength > grouped[ticker]["max_strength"]:

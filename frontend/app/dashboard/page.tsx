@@ -9,10 +9,12 @@ const StockChart = dynamic(() => import("@/components/StockChart"), { ssr: false
 
 interface Signal {
   ticker: string;
+  name: string;
   type: string;
   strategies: string[];
   max_strength: number;
   date: string;
+  market_cap: number | null;
 }
 
 interface SyncStatus {
@@ -42,6 +44,14 @@ export default function Dashboard() {
 
   const [newTicker, setNewTicker] = useState('');
   const [isAdding, setIsAdding] = useState(false);
+  const [minMarketCap, setMinMarketCap] = useState(0);
+
+  const MARKET_CAP_FILTERS = [
+    { label: 'Semua', value: 0 },
+    { label: 'Mid+', value: 1_000_000_000_000 },
+    { label: 'Large', value: 10_000_000_000_000 },
+    { label: 'Blue Chip', value: 50_000_000_000_000 },
+  ];
 
   useEffect(() => {
     const saved = localStorage.getItem('watchlist');
@@ -150,6 +160,10 @@ export default function Dashboard() {
   // Gabungkan semua portofolio untuk total P&L jika portfolio sudah terisi
   const totalUnrealized = portfolio ? (portfolio.USER.unrealized + portfolio.GEMINI.unrealized + portfolio.CLAUDE.unrealized) : 0;
   
+  const filteredSignals = signals.filter(sig =>
+    minMarketCap === 0 || (sig.market_cap != null && sig.market_cap >= minMarketCap)
+  );
+
   const filteredStocks = stocks.filter(s =>
     s.ticker !== '^JKSE' &&
     (!showWatchlistOnly || watchlist.has(s.ticker)) &&
@@ -188,7 +202,7 @@ export default function Dashboard() {
 
           <div className="xl:col-span-5 flex flex-col gap-6">
              <div className="bg-gradient-to-br from-teal-600/10 to-transparent border border-teal-500/20 rounded-[2.5rem] p-8 flex-1 flex flex-col">
-                <div className="flex justify-between items-center mb-6">
+                <div className="flex justify-between items-center mb-3">
                    <h2 className="text-[10px] font-black text-teal-400 uppercase tracking-[0.4em]">AI Intelligence Signals</h2>
                    <div className="flex gap-2">
                      <button onClick={handleSync} disabled={isSyncing} className="bg-white/10 hover:bg-white/20 text-white px-3 py-1.5 rounded-full text-[8px] font-black tracking-widest uppercase disabled:opacity-50 transition-all">
@@ -199,20 +213,38 @@ export default function Dashboard() {
                      </button>
                    </div>
                 </div>
-                <div className="flex-1 overflow-y-auto max-h-[220px] custom-scrollbar pr-2">
-                   {signals.length === 0 ? (
+                <div className="flex gap-1.5 mb-4">
+                  {MARKET_CAP_FILTERS.map(f => (
+                    <button
+                      key={f.value}
+                      onClick={() => setMinMarketCap(f.value)}
+                      className={`text-[7px] font-black uppercase tracking-widest px-2.5 py-1 rounded-full transition-all ${
+                        minMarketCap === f.value
+                          ? 'bg-teal-500 text-black'
+                          : 'bg-white/10 text-gray-400 hover:bg-white/20'
+                      }`}
+                    >
+                      {f.label}
+                    </button>
+                  ))}
+                </div>
+                <div className="flex-1 overflow-y-auto max-h-[180px] custom-scrollbar pr-2">
+                   {filteredSignals.length === 0 ? (
                      <div className="h-full flex flex-col items-center justify-center opacity-30 italic text-xs">
-                        <p>No active signals found.</p>
+                        <p>{signals.length === 0 ? 'No active signals found.' : 'No signals match this filter.'}</p>
                      </div>
                    ) : (
                      <div className="space-y-3">
-                        {signals.map((sig, i) => (
+                        {filteredSignals.map((sig, i) => (
                           <Link href={`/stocks/${sig.ticker}`} key={i} className="block group bg-white/5 border border-white/5 hover:border-teal-500/30 p-4 rounded-2xl transition-all">
-                             <div className="flex justify-between items-center mb-2">
-                                <span className="text-sm font-black group-hover:text-teal-400 transition-colors">{sig.ticker}</span>
+                             <div className="flex justify-between items-center mb-1">
+                                <div>
+                                  <span className="text-sm font-black group-hover:text-teal-400 transition-colors">{sig.ticker}</span>
+                                  {sig.name && <p className="text-[7px] text-gray-600 font-mono truncate w-28">{sig.name}</p>}
+                                </div>
                                 <span className="text-[8px] font-black bg-teal-500 text-black px-2 py-0.5 rounded uppercase tracking-tighter">{sig.max_strength}%</span>
                              </div>
-                             <div className="flex flex-wrap gap-1">
+                             <div className="flex flex-wrap gap-1 mt-1.5">
                                 {sig.strategies.map((strategy, j) => (
                                   <span key={j} className="text-[7px] font-bold bg-white/10 text-gray-300 px-1.5 py-0.5 rounded uppercase tracking-tight">{strategy}</span>
                                 ))}

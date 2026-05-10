@@ -8,6 +8,7 @@ export interface Stock {
   prev_close: number | null;
   change_pct: number | null;
   last_date: string | null;
+  market_cap: number | null;
   pe_ratio: number | null;
   pbv_ratio: number | null;
   dividend_yield: number | null;
