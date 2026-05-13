@@ -1,13 +1,37 @@
 'use client';
 
-import { useEffect, useState, useCallback } from 'react';
+import { useEffect, useState, useCallback, useRef } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import { api, Stock, PortfolioItem, OHLCV } from '@/lib/api';
+import { createChartSync } from '@/lib/chartSync';
 import dynamic from 'next/dynamic';
 import Link from 'next/link';
 import strategyRegistry from '../../../strategies_local/registry.json';
 
 const StockChart = dynamic(() => import("@/components/StockChart"), { ssr: false });
+const IndicatorSubChart = dynamic(() => import("@/components/IndicatorSubChart"), { ssr: false });
+
+type SubPanelType = 'rsi' | 'macd' | 'stoch' | 'volume';
+
+type StrategyConfig = {
+  ma20: boolean; ma50: boolean; ema12: boolean;
+  ma200: boolean; ema26: boolean; bb: boolean;
+  subPanel: SubPanelType | null;
+};
+
+const STRATEGY_INDICATORS: Record<string, StrategyConfig> = {
+  'manual-intuition':    { ma20: true,  ma50: true,  ema12: false, ma200: false, ema26: false, bb: false, subPanel: null    },
+  'rsi-reversion':       { ma20: false, ma50: false, ema12: false, ma200: false, ema26: false, bb: false, subPanel: 'rsi'   },
+  'triple-confirmation': { ma20: true,  ma50: false, ema12: false, ma200: false, ema26: false, bb: false, subPanel: 'macd'  },
+  'volatility-sniper':   { ma20: false, ma50: false, ema12: false, ma200: false, ema26: false, bb: true,  subPanel: 'stoch' },
+  'institutional-trend': { ma20: false, ma50: false, ema12: true,  ma200: true,  ema26: true,  bb: false, subPanel: null    },
+  'exhaustion-play':     { ma20: false, ma50: false, ema12: false, ma200: false, ema26: false, bb: true,  subPanel: 'rsi'   },
+  'trend-accelerator':   { ma20: false, ma50: true,  ema12: false, ma200: false, ema26: false, bb: false, subPanel: 'macd'  },
+  'pure-momentum':       { ma20: false, ma50: false, ema12: true,  ma200: false, ema26: true,  bb: false, subPanel: 'macd'  },
+  'defensive-bull':      { ma20: false, ma50: true,  ema12: false, ma200: true,  ema26: false, bb: false, subPanel: 'rsi'   },
+  'stoch-rsi-hybrid':    { ma20: false, ma50: false, ema12: false, ma200: false, ema26: false, bb: false, subPanel: 'stoch' },
+  'ma-cross':            { ma20: true,  ma50: true,  ema12: false, ma200: false, ema26: false, bb: false, subPanel: null    },
+};
 
 interface Indicators {
   MA_20: number | null; MA_50: number | null; MA_200: number | null;
@@ -49,7 +73,7 @@ export default function TradingTerminalPage() {
   const [mlStatus, setMlStatus] = useState<MlStatus | null>(null);
   const [mlLoading, setMlLoading] = useState(false);
   const [mlTraining, setMlTraining] = useState(false);
-  
+
   // Professional Order State
   const [orderSide, setOrderSide] = useState<'BUY' | 'SELL'>('BUY');
   const [tradeQty, setTradeQty] = useState(1);
@@ -60,10 +84,17 @@ export default function TradingTerminalPage() {
   const [selectedStrategy, setSelectedStrategy] = useState('manual-intuition');
   const [reasoning, setReasoning] = useState('');
 
+  // Shared time scale sync between price chart and indicator sub-panels
+  const chartSync = useRef(createChartSync());
+
   // Chart Visibility State
   const [showMA20, setShowMA20] = useState(true);
   const [showMA50, setShowMA50] = useState(true);
+  const [showMA200, setShowMA200] = useState(false);
   const [showEMA12, setShowEMA12] = useState(false);
+  const [showEMA26, setShowEMA26] = useState(false);
+  const [showBB, setShowBB] = useState(false);
+  const [activeSubPanel, setActiveSubPanel] = useState<SubPanelType | null>(null);
 
   useEffect(() => {
     api.getStocks().then(setStocks);
@@ -117,6 +148,19 @@ export default function TradingTerminalPage() {
   useEffect(() => {
     fetchData();
   }, [fetchData]);
+
+  // Auto-apply indicators when strategy changes
+  useEffect(() => {
+    const cfg = STRATEGY_INDICATORS[selectedStrategy];
+    if (!cfg) return;
+    setShowMA20(cfg.ma20);
+    setShowMA50(cfg.ma50);
+    setShowMA200(cfg.ma200);
+    setShowEMA12(cfg.ema12);
+    setShowEMA26(cfg.ema26);
+    setShowBB(cfg.bb);
+    setActiveSubPanel(cfg.subPanel);
+  }, [selectedStrategy]);
 
   const handleTrade = async () => {
     if (!ticker) return;
@@ -245,17 +289,39 @@ export default function TradingTerminalPage() {
         {/* Workspace */}
         <div className="flex-1 overflow-y-auto p-8 custom-scrollbar">
            <div className="flex justify-between items-center mb-6">
-              <div className="flex gap-2">
+              <div className="flex gap-2 flex-wrap items-center">
+                {/* Price overlay toggles */}
                 {[
-                  { label: "MA 20", state: showMA20, toggle: () => setShowMA20(!showMA20), color: "border-yellow-500/50 text-yellow-500" },
-                  { label: "MA 50", state: showMA50, toggle: () => setShowMA50(!showMA50), color: "border-purple-500/50 text-purple-500" },
-                  { label: "EMA 12", state: showEMA12, toggle: () => setShowEMA12(!showEMA12), color: "border-blue-400/50 text-blue-400" },
+                  { label: "MA 20",  state: showMA20,  toggle: () => setShowMA20(!showMA20),   color: "border-yellow-500/50 text-yellow-500" },
+                  { label: "MA 50",  state: showMA50,  toggle: () => setShowMA50(!showMA50),   color: "border-purple-500/50 text-purple-500" },
+                  { label: "MA 200", state: showMA200, toggle: () => setShowMA200(!showMA200), color: "border-orange-500/50 text-orange-500" },
+                  { label: "EMA 12", state: showEMA12, toggle: () => setShowEMA12(!showEMA12), color: "border-blue-400/50 text-blue-400"     },
+                  { label: "EMA 26", state: showEMA26, toggle: () => setShowEMA26(!showEMA26), color: "border-cyan-400/50 text-cyan-400"     },
+                  { label: "BB",     state: showBB,    toggle: () => setShowBB(!showBB),       color: "border-pink-500/50 text-pink-500"     },
                 ].map(({ label, state, toggle, color }) => (
                   <button
                     key={label}
                     onClick={toggle}
                     className={`text-[9px] font-black tracking-widest uppercase px-4 py-2 rounded-xl border transition-all ${
                       state ? `${color} bg-white/5` : "border-white/5 text-gray-700 hover:text-gray-500"
+                    }`}
+                  >
+                    {label}
+                  </button>
+                ))}
+                <div className="w-px h-6 bg-white/10 mx-1" />
+                {/* Oscillator sub-panel toggles */}
+                {([
+                  { label: "RSI",   panel: 'rsi'    as SubPanelType, color: "border-amber-400/50 text-amber-400"    },
+                  { label: "MACD",  panel: 'macd'   as SubPanelType, color: "border-blue-400/50 text-blue-400"      },
+                  { label: "STOCH", panel: 'stoch'  as SubPanelType, color: "border-emerald-400/50 text-emerald-400" },
+                  { label: "VOL",   panel: 'volume' as SubPanelType, color: "border-violet-400/50 text-violet-400"  },
+                ] as { label: string; panel: SubPanelType; color: string }[]).map(({ label, panel, color }) => (
+                  <button
+                    key={label}
+                    onClick={() => setActiveSubPanel(p => p === panel ? null : panel)}
+                    className={`text-[9px] font-black tracking-widest uppercase px-4 py-2 rounded-xl border transition-all ${
+                      activeSubPanel === panel ? `${color} bg-white/5` : "border-white/5 text-gray-700 hover:text-gray-500"
                     }`}
                   >
                     {label}
@@ -283,7 +349,22 @@ export default function TradingTerminalPage() {
               {loading ? (
                 <div className="h-[450px] flex items-center justify-center text-gray-600 font-mono text-sm italic tracking-widest uppercase">Syncing Market Data...</div>
               ) : (
-                <StockChart data={ohlcv} indicators={indicators ?? {}} showMA20={showMA20} showMA50={showMA50} showEMA12={showEMA12} />
+                <>
+                  <StockChart
+                    data={ohlcv}
+                    indicators={indicators ?? {}}
+                    showMA20={showMA20}
+                    showMA50={showMA50}
+                    showMA200={showMA200}
+                    showEMA12={showEMA12}
+                    showEMA26={showEMA26}
+                    showBB={showBB}
+                    sync={chartSync.current}
+                  />
+                  {activeSubPanel && ohlcv.length > 0 && (
+                    <IndicatorSubChart data={ohlcv} type={activeSubPanel} sync={chartSync.current} />
+                  )}
+                </>
               )}
            </div>
 

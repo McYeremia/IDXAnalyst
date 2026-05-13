@@ -39,10 +39,11 @@ const STRATEGIES = [
 ];
 
 const NAV_LINKS = [
-  { label: 'MARKET', href: '/dashboard' },
-  { label: 'SCREENER', href: '/screener' },
-  { label: 'BATTLEGROUND', href: '/portfolio' },
-  { label: 'BACKTEST', href: '/backtest' },
+  { label: 'MARKET',      href: '/dashboard' },
+  { label: 'SCREENER',    href: '/screener' },
+  { label: 'PORTOFOLIO',  href: '/portfolio' },
+  { label: 'BACKTEST',    href: '/backtest' },
+  { label: 'BROKER FLOW', href: '/broker-flow' },
 ];
 
 // Fallback static data (shown while loading / if backend offline)
@@ -81,18 +82,10 @@ function fmtAbsChange(n: number | null): string {
 
 // ── Component ──────────────────────────────────────────────
 export default function LandingPage() {
-  const [scrolled, setScrolled]     = useState(false);
   const [activeTick, setActiveTick] = useState(0);
   const [tickers, setTickers]       = useState<LiveTicker[]>(STATIC_TICKERS);
   const [ihsg, setIhsg]             = useState<IhsgData>(STATIC_IHSG);
   const [dataDate, setDataDate]      = useState('MEMUAT DATA...');
-
-  // Scroll listener
-  useEffect(() => {
-    const handler = () => setScrolled(window.scrollY > 20);
-    window.addEventListener('scroll', handler);
-    return () => window.removeEventListener('scroll', handler);
-  }, []);
 
   // Rotating highlight in terminal
   useEffect(() => {
@@ -175,51 +168,6 @@ export default function LandingPage() {
 
   return (
     <div className="min-h-screen bg-[#0A0A0A] text-white selection:bg-[#3B82F6]/40 selection:text-white">
-
-      {/* ── NAVIGATION ─────────────────────────────────────────── */}
-      <nav
-        className={`fixed top-0 w-full z-50 transition-all duration-100 ${
-          scrolled
-            ? 'bg-[#0A0A0A] border-b-2 border-[#3B82F6]'
-            : 'bg-[#0A0A0A]/98 border-b-2 border-white/10'
-        }`}
-      >
-        <div className="max-w-[1400px] mx-auto px-6 h-[60px] flex justify-between items-center">
-          <div className="flex items-center gap-3">
-            <div className="w-8 h-8 bg-[#3B82F6] flex items-center justify-center font-black text-[11px] text-white">
-              IX
-            </div>
-            <span className="text-base font-black tracking-tighter uppercase">
-              IDX<span className="text-[#3B82F6]">Analyst</span>
-            </span>
-          </div>
-
-          <div className="hidden md:flex items-center gap-8">
-            {NAV_LINKS.map(link => (
-              <Link
-                key={link.label}
-                href={link.href}
-                className="text-[10px] font-black tracking-[0.2em] text-gray-500 hover:text-[#3B82F6] transition-colors duration-100 uppercase"
-              >
-                {link.label}
-              </Link>
-            ))}
-          </div>
-
-          <div className="flex items-center gap-3">
-            <div className="hidden sm:flex items-center gap-2 px-3 py-1.5 border border-[#22C55E]/30 bg-[#22C55E]/5">
-              <span className="w-1.5 h-1.5 rounded-full bg-[#22C55E] animate-pulse" />
-              <span className="text-[9px] font-mono text-[#22C55E] tracking-widest uppercase">LIVE</span>
-            </div>
-            <Link
-              href="/dashboard"
-              className="bg-[#3B82F6] text-white px-5 py-2 text-[10px] font-black tracking-[0.2em] uppercase hover:bg-blue-400 transition-colors duration-100"
-            >
-              LAUNCH →
-            </Link>
-          </div>
-        </div>
-      </nav>
 
       {/* ── HERO ───────────────────────────────────────────────── */}
       <section className="relative min-h-screen pt-[60px] border-b-2 border-white/10 overflow-hidden">

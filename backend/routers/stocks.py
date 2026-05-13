@@ -96,8 +96,29 @@ def list_stocks(db: Session = Depends(get_db)):
 
 # Static paths must come BEFORE parameterized /{ticker} routes
 @router.get("/ihsg")
-def get_ihsg():
-    """Returns IHSG composite index latest price and daily change."""
+def get_ihsg(db: Session = Depends(get_db)):
+    """Returns IHSG composite index latest price and daily change — from local DB."""
+    stock = db.query(models.Stock).filter(models.Stock.ticker == "^JKSE").first()
+    if stock:
+        rows = (
+            db.query(models.OHLCVDaily)
+            .filter(models.OHLCVDaily.stock_id == stock.id)
+            .order_by(desc(models.OHLCVDaily.date))
+            .limit(2)
+            .all()
+        )
+        if len(rows) >= 2:
+            latest, prev = rows[0], rows[1]
+            change     = latest.close - prev.close
+            change_pct = (change / prev.close * 100) if prev.close > 0 else 0
+            return {
+                "price":      round(latest.close, 2),
+                "change":     round(change, 2),
+                "change_pct": round(change_pct, 2),
+                "date":       str(latest.date),
+            }
+
+    # Fallback: fetch live from Yahoo Finance if ^JKSE not in DB
     try:
         df = fetcher.fetch_ohlcv("^JKSE", period="5d")
         if df is None or df.empty or len(df) < 2:
@@ -112,7 +133,6 @@ def get_ihsg():
         change_pct   = (change / prev_close * 100) if prev_close > 0 else 0
         latest_idx   = df.index[-1]
         date_str     = latest_idx.strftime("%Y-%m-%d") if hasattr(latest_idx, "strftime") else str(latest_idx)
-
         return {
             "price":      round(latest_close, 2),
             "change":     round(change, 2),

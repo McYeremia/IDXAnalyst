@@ -137,3 +137,21 @@ class AgentPositionTarget(Base):
     is_active = Column(Integer, default=1)          # 1 = posisi masih terbuka, 0 = sudah ditutup
     created_at = Column(DateTime, server_default=func.now())
     updated_at = Column(DateTime, server_default=func.now())
+
+
+class BrokerFlow(Base):
+    """
+    Ringkasan aktivitas broker harian dari IDX (aggregate seluruh pasar, bukan per-saham).
+    Source: idx.co.id/primary/TradingSummary/GetBrokerSummary
+    """
+    __tablename__ = "broker_flows"
+    __table_args__ = (UniqueConstraint("date", "broker_code", name="uq_broker_flow"),)
+
+    id          = Column(Integer, primary_key=True, index=True)
+    date        = Column(Date, nullable=False, index=True)
+    broker_code = Column(String(10), nullable=False)
+    broker_name = Column(String(200))
+    total_value = Column(BigInteger, default=0)   # total nilai transaksi (beli+jual) dalam Rupiah
+    volume      = Column(BigInteger, default=0)    # total volume dalam lot
+    frequency   = Column(Integer, default=0)       # jumlah transaksi
+    scraped_at  = Column(DateTime, server_default=func.now())
