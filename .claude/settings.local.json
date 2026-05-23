@@ -35,7 +35,8 @@
       "WebFetch(domain:stockbit.com)",
       "WebFetch(domain:raw.githubusercontent.com)",
       "WebFetch(domain:sectors.app)",
-      "PowerShell(curl *)"
+      "PowerShell(curl *)",
+      "Bash(python3 *)"
     ]
   },
   "enableAllProjectMcpServers": true,
