@@ -179,6 +179,11 @@ def execute_ai_trade(ticker: str, action: str, quantity_lots: int, agent_name: s
     ticker = ticker.upper()
     agent_name = agent_name.upper()
 
+    VALID_AGENTS = {"CLAUDE", "GEMINI", "USER"}
+    if agent_name not in VALID_AGENTS:
+        db.close()
+        return f"ERROR: Invalid agent_name '{agent_name}'. Must be one of: CLAUDE, GEMINI, USER."
+
     stock = db.query(models.Stock).filter(models.Stock.ticker == ticker).first()
     if not stock:
         db.close()
@@ -195,6 +200,40 @@ def execute_ai_trade(ticker: str, action: str, quantity_lots: int, agent_name: s
         return f"ERROR: No market price data available for {ticker}."
 
     price = latest.close
+
+    if action.upper() == "SELL":
+        holdings = _get_agent_holdings(db, agent_name)
+        held_shares = holdings.get(ticker, {}).get("shares", 0)
+        needed = quantity_lots * 100
+        if held_shares < needed:
+            db.close()
+            return f"ERROR: {agent_name} only holds {held_shares // 100} lots of {ticker} (requested {quantity_lots} lots SELL)."
+
+    if action.upper() == "BUY":
+        holdings = _get_agent_holdings(db, agent_name)
+        invested = sum(
+            pos["shares"] * pos["avg_price"]
+            for pos in holdings.values()
+            if pos["shares"] > 0
+        )
+        realized = sum(pos["realized"] for pos in holdings.values())
+        INITIAL_MODAL = 15_000_000
+        available_cash = INITIAL_MODAL - invested + realized
+        trade_cost = price * quantity_lots * 100
+        if trade_cost > available_cash:
+            db.close()
+            return (
+                f"ERROR: Insufficient funds. Trade cost Rp {trade_cost:,.0f} "
+                f"but {agent_name} only has Rp {available_cash:,.0f} available."
+            )
+        # 25% max position rule
+        if trade_cost > INITIAL_MODAL * 0.25:
+            db.close()
+            return (
+                f"ERROR: Position too large. Rp {trade_cost:,.0f} exceeds 25% limit "
+                f"(max Rp {INITIAL_MODAL * 0.25:,.0f})."
+            )
+
     new_trade = models.TradeLog(
         stock_id=stock.id,
         action=action.upper(),

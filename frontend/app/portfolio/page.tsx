@@ -1,8 +1,10 @@
 'use client';
 
-import { useEffect, useState, useCallback } from 'react';
+import { useEffect, useState, useCallback, useRef } from 'react';
 import { useRouter } from 'next/navigation';
-import { api, TradeHistory, PortfolioItem } from '@/lib/api';
+import { api, TradeHistory, PortfolioItem, MultiPortfolioResponse } from '@/lib/api';
+import { INITIAL_MODAL } from '@/lib/constants';
+import { useToast } from '@/components/Toast';
 import Link from 'next/link';
 import dynamic from 'next/dynamic';
 
@@ -38,19 +40,29 @@ interface SellModal {
   open: boolean;
   ticker: string;
   maxLots: number;
+  currentPrice: number;
+  avgPrice: number;
 }
 
 export default function PortfolioPage() {
+  useEffect(() => { document.title = 'Portfolio — IDXAnalyst'; }, []);
   const router = useRouter();
-  const [data, setData] = useState<any>(null);
+  const { toast } = useToast();
+  const [data, setData] = useState<MultiPortfolioResponse | null>(null);
   const [growth, setGrowth] = useState<Record<PortfolioTab, { date: string; value: number }[]> | null>(null);
   const [history, setHistory] = useState<TradeHistory[]>([]);
   const [loading, setLoading] = useState(true);
+  const [tabLoading, setTabLoading] = useState(false);
   const [activeTab, setActiveTab] = useState<PortfolioTab>('USER');
-  const [sellModal, setSellModal] = useState<SellModal>({ open: false, ticker: '', maxLots: 0 });
+  const [sellModal, setSellModal] = useState<SellModal>({ open: false, ticker: '', maxLots: 0, currentPrice: 0, avgPrice: 0 });
   const [sellQty, setSellQty] = useState(1);
   const [isSelling, setIsSelling] = useState(false);
   const [viewMode, setViewMode] = useState<ViewMode>('portfolio');
+  const [histSearch, setHistSearch] = useState('');
+  const [histActionFilter, setHistActionFilter] = useState<'ALL' | 'BUY' | 'SELL'>('ALL');
+  const [donutHovered, setDonutHovered] = useState<{ ticker: string; pct: number; value: number } | null>(null);
+
+  const isInitialLoad = useRef(true);
 
   const refresh = useCallback(async () => {
     const [portfolio, growthData, hist] = await Promise.all([
@@ -64,15 +76,31 @@ export default function PortfolioPage() {
   }, [activeTab]);
 
   useEffect(() => {
-    setLoading(true);
-    refresh().finally(() => setLoading(false));
+    if (isInitialLoad.current) {
+      isInitialLoad.current = false;
+      setLoading(true);
+      refresh().finally(() => setLoading(false));
+    } else {
+      setTabLoading(true);
+      refresh().finally(() => setTabLoading(false));
+    }
   }, [refresh]);
 
-  const openSellModal = (ticker: string, shares: number) => {
+  const openSellModal = (ticker: string, shares: number, currentPrice: number, avgPrice: number) => {
     const maxLots = Math.floor(shares / 100);
     setSellQty(1);
-    setSellModal({ open: true, ticker, maxLots });
+    setSellModal({ open: true, ticker, maxLots, currentPrice, avgPrice });
   };
+
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape' && sellModal.open) {
+        setSellModal({ open: false, ticker: '', maxLots: 0, currentPrice: 0, avgPrice: 0 });
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [sellModal.open]);
 
   const handleSell = async () => {
     if (sellQty < 1 || sellQty > sellModal.maxLots) return;
@@ -80,13 +108,13 @@ export default function PortfolioPage() {
     try {
       const res = await api.executeTrade(sellModal.ticker, 'SELL', sellQty, undefined, 'MANUAL', 'Sold from portfolio');
       if (res.status === 'ok') {
-        setSellModal({ open: false, ticker: '', maxLots: 0 });
+        setSellModal({ open: false, ticker: '', maxLots: 0, currentPrice: 0, avgPrice: 0 });
         await refresh();
       } else {
-        alert(res.detail || 'Gagal menjual saham');
+        toast(res.detail || 'Gagal menjual saham', 'error');
       }
     } catch {
-      alert('Gagal menghubungi server');
+      toast('Gagal menghubungi server', 'error');
     } finally {
       setIsSelling(false);
     }
@@ -100,9 +128,40 @@ export default function PortfolioPage() {
 
   const current = data[activeTab];
   const growthData = growth?.[activeTab] ?? [];
-  const INITIAL = 15_000_000;
-  const totalReturn = current.total_value - INITIAL;
-  const totalReturnPct = ((totalReturn / INITIAL) * 100).toFixed(2);
+  const totalReturn = current.total_value - INITIAL_MODAL;
+  const totalReturnPct = ((totalReturn / INITIAL_MODAL) * 100).toFixed(2);
+
+  // Trade history filter
+  const filteredHistory = history.filter(t => {
+    const matchTicker = t.ticker.toLowerCase().includes(histSearch.toLowerCase());
+    const matchAction = histActionFilter === 'ALL' || t.action === histActionFilter;
+    return matchTicker && matchAction;
+  });
+
+  const exportToCSV = () => {
+    if (filteredHistory.length === 0) return;
+    const header = ['Tanggal', 'Ticker', 'Aksi', 'Harga', 'Lot', 'Total', 'P&L', 'P&L %', 'Strategi', 'Catatan'];
+    const rows = filteredHistory.map(t => [
+      t.date,
+      t.ticker,
+      t.action,
+      t.price.toString(),
+      t.quantity.toString(),
+      t.total_value.toLocaleString('id-ID'),
+      t.pnl != null ? t.pnl.toLocaleString('id-ID') : '',
+      t.pnl_pct != null ? t.pnl_pct.toFixed(2) + '%' : '',
+      t.strategy,
+      `"${(t.notes || '').replace(/"/g, '""')}"`,
+    ]);
+    const csv = [header, ...rows].map(r => r.join(',')).join('\n');
+    const blob = new Blob(['﻿' + csv], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `trade-history-${activeTab}-${new Date().toISOString().slice(0,10)}.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
 
   // Analytics
   const sellTrades = history.filter(t => t.action === 'SELL' && t.pnl !== null);
@@ -158,7 +217,7 @@ export default function PortfolioPage() {
             <h1 className="text-4xl font-black tracking-tighter mb-2">Portfolio <span className="text-blue-500">Battleground</span></h1>
             <p className="text-gray-500 text-[10px] uppercase tracking-widest leading-loose font-bold">15 Million Capital Battle: Human vs Gemini vs Claude</p>
           </div>
-          <div className="flex p-1 bg-white/5 rounded-2xl border border-white/10 overflow-x-auto shadow-inner">
+          <div className="flex flex-wrap gap-2 p-1 bg-white/5 rounded-2xl border border-white/10 overflow-x-auto shadow-inner">
             {(['USER', 'GEMINI', 'CLAUDE'] as PortfolioTab[]).map(tab => (
               <button
                 key={tab}
@@ -189,7 +248,12 @@ export default function PortfolioPage() {
         </div>
 
         {/* CORE STATS */}
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
+        <div className={`grid grid-cols-2 md:grid-cols-4 gap-4 mb-8 relative transition-opacity duration-200 ${tabLoading ? 'opacity-50' : 'opacity-100'}`}>
+          {tabLoading && (
+            <div className="absolute inset-0 flex items-center justify-center z-10 pointer-events-none">
+              <span className="text-[9px] font-black uppercase tracking-[0.4em] text-blue-400 animate-pulse">LOADING...</span>
+            </div>
+          )}
           <div className="bg-white/[0.02] border border-white/5 p-6 rounded-2xl shadow-xl">
             <p className="text-[9px] text-gray-500 uppercase tracking-widest mb-1 font-black">Kas Tersedia</p>
             <p className={`text-lg font-black ${current.modal < 0 ? 'text-red-400' : 'text-white'}`}>
@@ -254,6 +318,7 @@ export default function PortfolioPage() {
           </h2>
 
           <div className="bg-white/[0.01] border border-white/5 rounded-3xl overflow-hidden shadow-2xl">
+            <div className="overflow-x-auto -mx-2 sm:mx-0">
             <table className="min-w-full text-left font-mono">
               <thead>
                 <tr className="border-b border-white/5 text-[9px] font-black text-gray-600 uppercase tracking-[0.4em] bg-white/[0.02]">
@@ -312,7 +377,7 @@ export default function PortfolioPage() {
                       <td className="px-6 py-5 text-center">
                         {activeTab === 'USER' && (
                           <button
-                            onClick={() => openSellModal(item.ticker, item.shares)}
+                            onClick={() => openSellModal(item.ticker, item.shares, item.current_price ?? 0, item.avg_price ?? 0)}
                             className="text-[9px] font-black px-4 py-1.5 rounded-lg bg-red-500/10 text-red-400 border border-red-500/20 hover:bg-red-500/20 transition-all uppercase tracking-widest"
                           >
                             SELL
@@ -324,6 +389,7 @@ export default function PortfolioPage() {
                 )}
               </tbody>
             </table>
+            </div>
           </div>
         </div>
 
@@ -333,10 +399,54 @@ export default function PortfolioPage() {
             <span className="w-8 h-px bg-white/10" />
             Trade History — {activeTab}
             <span className="flex-1 h-px bg-white/10" />
-            <span className="text-gray-700 normal-case tracking-normal">{history.length} transaksi</span>
+            <span className="text-gray-700 normal-case tracking-normal">{filteredHistory.length} transaksi</span>
           </h2>
 
+          {/* FILTER BAR */}
+          <div className="bg-white/[0.02] border border-white/5 rounded-2xl p-4 mb-4 flex items-center gap-4 flex-wrap">
+            <input
+              type="text"
+              placeholder="Cari ticker..."
+              value={histSearch}
+              onChange={e => setHistSearch(e.target.value)}
+              className="bg-white/5 border border-white/10 rounded-xl px-3 py-2 text-sm font-mono text-white focus:outline-none focus:border-blue-500/50 w-48 placeholder:text-gray-600"
+            />
+            <div className="flex p-1 bg-white/5 rounded-xl border border-white/10 gap-0.5">
+              {(['ALL', 'BUY', 'SELL'] as const).map(f => (
+                <button
+                  key={f}
+                  onClick={() => setHistActionFilter(f)}
+                  className={`px-4 py-1.5 rounded-xl text-[9px] font-black uppercase tracking-widest transition-all ${
+                    histActionFilter === f
+                      ? f === 'ALL' ? 'bg-blue-600 text-white' : f === 'BUY' ? 'bg-green-600 text-white' : 'bg-red-600 text-white'
+                      : 'text-gray-500 hover:text-white'
+                  }`}
+                >
+                  {f}
+                </button>
+              ))}
+            </div>
+            {(histSearch || histActionFilter !== 'ALL') && (
+              <button
+                onClick={() => { setHistSearch(''); setHistActionFilter('ALL'); }}
+                className="text-[9px] font-black uppercase tracking-widest text-gray-600 hover:text-white transition-colors"
+              >
+                Reset
+              </button>
+            )}
+            <span className="text-[9px] font-mono text-gray-700 ml-auto">{filteredHistory.length} / {history.length} transaksi</span>
+            <button
+              onClick={exportToCSV}
+              disabled={filteredHistory.length === 0}
+              title="Export ke CSV"
+              className="text-[8px] font-black uppercase tracking-widest px-3 py-1.5 rounded-xl border border-white/10 text-gray-500 hover:text-white hover:border-white/30 transition-all disabled:opacity-30"
+            >
+              ↓ CSV
+            </button>
+          </div>
+
           <div className="bg-white/[0.01] border border-white/5 rounded-3xl overflow-hidden shadow-2xl">
+            <div className="overflow-x-auto -mx-2 sm:mx-0">
             <table className="min-w-full text-left font-mono">
               <thead>
                 <tr className="border-b border-white/5 text-[9px] font-black text-gray-600 uppercase tracking-[0.4em] bg-white/[0.02]">
@@ -353,14 +463,14 @@ export default function PortfolioPage() {
                 </tr>
               </thead>
               <tbody className="divide-y divide-white/[0.03]">
-                {history.length === 0 ? (
+                {filteredHistory.length === 0 ? (
                   <tr>
                     <td colSpan={10} className="px-8 py-24 text-center text-gray-700 italic text-[10px] uppercase font-black opacity-30">
-                      Belum ada riwayat transaksi untuk {activeTab}
+                      {history.length === 0 ? `Belum ada riwayat transaksi untuk ${activeTab}` : 'Tidak ada transaksi yang cocok dengan filter'}
                     </td>
                   </tr>
                 ) : (
-                  history.map((t) => (
+                  filteredHistory.map((t) => (
                     <tr
                       key={t.id}
                       onClick={() => router.push(`/portfolio/trade/${t.id}`)}
@@ -407,7 +517,7 @@ export default function PortfolioPage() {
                       <td className="px-6 py-4">
                         <span className="text-[9px] font-black bg-white/5 px-2 py-1 rounded-full text-blue-400 uppercase">{t.strategy}</span>
                       </td>
-                      <td className="px-6 py-4 text-xs text-gray-500 italic max-w-[160px] truncate">
+                      <td className="px-6 py-4 text-xs text-gray-500 italic max-w-[160px] truncate" title={t.notes || ''}>
                         {t.notes || '—'}
                       </td>
                       <td className="px-6 py-4 text-right">
@@ -418,6 +528,7 @@ export default function PortfolioPage() {
                 )}
               </tbody>
             </table>
+            </div>
           </div>
         </div>
 
@@ -465,16 +576,37 @@ export default function PortfolioPage() {
                 {allocData.length === 0 ? (
                   <div className="h-40 flex items-center justify-center text-gray-700 text-xs uppercase font-black opacity-30 italic">Tidak ada posisi aktif</div>
                 ) : (
-                  <div className="flex items-center gap-8">
+                  <div className="flex flex-col md:flex-row items-center gap-8">
                     <svg viewBox="0 0 200 200" className="w-40 h-40 shrink-0">
                       {donutSegments.map(seg => (
-                        <path key={seg.ticker} d={seg.pathD} fill={seg.color} opacity={0.9} />
+                        <path
+                          key={seg.ticker}
+                          d={seg.pathD}
+                          fill={seg.color}
+                          opacity={donutHovered ? (donutHovered.ticker === seg.ticker ? 1 : 0.75) : 0.9}
+                          cursor="pointer"
+                          onMouseEnter={() => setDonutHovered({ ticker: seg.ticker, pct: seg.pct, value: seg.value })}
+                          onMouseLeave={() => setDonutHovered(null)}
+                        />
                       ))}
                       <circle cx="100" cy="100" r="40" fill="#050505" />
-                      <text x="100" y="97" textAnchor="middle" fill="white" fontSize="14" fontWeight="bold" fontFamily="monospace">
-                        {current.assets.length}
-                      </text>
-                      <text x="100" y="111" textAnchor="middle" fill="#555" fontSize="8" fontFamily="monospace">STOCKS</text>
+                      {donutHovered ? (
+                        <>
+                          <text x="100" y="93" textAnchor="middle" fill="white" fontSize="10" fontWeight="bold" fontFamily="monospace">
+                            {donutHovered.ticker}
+                          </text>
+                          <text x="100" y="106" textAnchor="middle" fill="#22C55E" fontSize="9" fontFamily="monospace">
+                            {donutHovered.pct.toFixed(1)}%
+                          </text>
+                        </>
+                      ) : (
+                        <>
+                          <text x="100" y="97" textAnchor="middle" fill="white" fontSize="14" fontWeight="bold" fontFamily="monospace">
+                            {current.assets.length}
+                          </text>
+                          <text x="100" y="111" textAnchor="middle" fill="#555" fontSize="8" fontFamily="monospace">STOCKS</text>
+                        </>
+                      )}
                     </svg>
                     <div className="flex-1 space-y-2.5 min-w-0">
                       {allocData.map(seg => (
@@ -560,9 +692,31 @@ export default function PortfolioPage() {
               </button>
             </div>
 
+            {/* P&L Preview */}
+            <div className="mb-6 bg-white/[0.02] border border-white/5 rounded-2xl p-4 space-y-2">
+              <div className="flex justify-between items-center">
+                <span className="text-[9px] font-black uppercase tracking-widest text-gray-500">Estimasi Dana Masuk</span>
+                <span className="text-sm font-black font-mono text-white">
+                  Rp {(sellModal.currentPrice * sellQty * 100).toLocaleString('id-ID')}
+                </span>
+              </div>
+              <div className="flex justify-between items-center">
+                <span className="text-[9px] font-black uppercase tracking-widest text-gray-500">Est. P&amp;L</span>
+                {(() => {
+                  const pnl = (sellModal.currentPrice - sellModal.avgPrice) * sellQty * 100;
+                  const isProfit = pnl >= 0;
+                  return (
+                    <span className={`text-sm font-black font-mono ${isProfit ? 'text-green-400' : 'text-red-400'}`}>
+                      {isProfit ? '+' : ''}Rp {Math.abs(pnl).toLocaleString('id-ID', { maximumFractionDigits: 0 })}
+                    </span>
+                  );
+                })()}
+              </div>
+            </div>
+
             <div className="flex gap-3">
               <button
-                onClick={() => setSellModal({ open: false, ticker: '', maxLots: 0 })}
+                onClick={() => setSellModal({ open: false, ticker: '', maxLots: 0, currentPrice: 0, avgPrice: 0 })}
                 className="flex-1 py-3 rounded-xl border border-white/10 text-[10px] font-black uppercase tracking-widest text-gray-500 hover:text-white hover:border-white/20 transition-all"
               >
                 Batal

@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { api, Stock, MultiPortfolioResponse, OHLCV } from '@/lib/api';
 import Link from 'next/link';
+import { useToast } from '@/components/Toast';
 import dynamic from 'next/dynamic';
 
 const StockChart = dynamic(() => import("@/components/StockChart"), { ssr: false });
@@ -29,6 +30,7 @@ interface SyncStatus {
 }
 
 export default function Dashboard() {
+  useEffect(() => { document.title = 'Dashboard — IDXAnalyst'; }, []);
   const [stocks, setStocks] = useState<Stock[]>([]);
   const [portfolio, setPortfolio] = useState<MultiPortfolioResponse | null>(null);
   const [signals, setSignals] = useState<Signal[]>([]);
@@ -45,6 +47,8 @@ export default function Dashboard() {
   const [newTicker, setNewTicker] = useState('');
   const [isAdding, setIsAdding] = useState(false);
   const [minMarketCap, setMinMarketCap] = useState(0);
+
+  const { toast } = useToast();
 
   const MARKET_CAP_FILTERS = [
     { label: 'Semua', value: 0 },
@@ -84,7 +88,7 @@ export default function Dashboard() {
       setIhsgData(ihsg.data || []);
       setSignals(signalsData || []);
     } catch (err) {
-      console.error(err);
+      toast('Gagal memuat data pasar. Periksa koneksi backend.', 'error');
     } finally {
       setLoading(false);
     }
@@ -106,7 +110,7 @@ export default function Dashboard() {
       await api.triggerScan();
       await loadData();
     } catch (err) {
-      alert("Scan failed.");
+      toast('Scan gagal. Periksa koneksi backend.', 'error');
     } finally {
       setIsRunningScan(false);
     }
@@ -138,7 +142,7 @@ export default function Dashboard() {
         }
       }, 1000);
     } catch (err) {
-      console.error("Sync error:", err);
+      toast('Sync gagal. Periksa koneksi backend.', 'error');
       setIsSyncing(false);
     }
   };
@@ -151,7 +155,7 @@ export default function Dashboard() {
       setNewTicker('');
       loadData();
     } catch (err) {
-      alert("Stock not found.");
+      toast(`Ticker "${newTicker}" tidak ditemukan.`, 'error');
     } finally {
       setIsAdding(false);
     }
@@ -174,12 +178,36 @@ export default function Dashboard() {
   const prevIhsg = ihsgData[ihsgData.length - 2]?.close || 0;
   const ihsgChange = currentIhsg - prevIhsg;
 
+  const dataLastDate = stocks.length > 0
+    ? stocks.filter(s => s.last_date).map(s => s.last_date!).sort().at(-1) ?? null
+    : null;
+
+  const isDataStale = (() => {
+    if (!dataLastDate) return false;
+    const last = new Date(dataLastDate);
+    const now = new Date();
+    const diffDays = Math.floor((now.getTime() - last.getTime()) / (1000 * 60 * 60 * 24));
+    return diffDays >= 2; // stale if 2+ days old (accounts for weekends)
+  })();
+
   if (loading && stocks.length === 0) return <div className="min-h-screen bg-[#050505] flex items-center justify-center animate-pulse text-blue-500 font-mono tracking-widest uppercase text-xs">Initializing Terminal...</div>;
 
   return (
     <main className="min-h-screen bg-[#050505] text-white p-4 md:p-8 pt-24 md:pt-28">
       <div className="max-w-7xl mx-auto">
-        
+
+        {isDataStale && (
+          <div className="bg-amber-500/10 border border-amber-500/20 rounded-2xl px-5 py-3 mb-6 flex items-center gap-3">
+            <span className="text-amber-400 text-sm">⚠</span>
+            <span className="text-[10px] font-black text-amber-400 uppercase tracking-widest">
+              Data terakhir: {dataLastDate} — Sync diperlukan
+            </span>
+            <span className="text-[9px] font-mono text-amber-400/60 ml-auto">
+              Klik SYNC DATA untuk memperbarui
+            </span>
+          </div>
+        )}
+
         {/* TOP SECTION: IHSG & AI SIGNALS */}
         <div className="grid grid-cols-1 xl:grid-cols-12 gap-6 mb-10 text-left">
           <div className="xl:col-span-7 bg-white/[0.02] border border-white/10 rounded-[2.5rem] p-8 shadow-2xl relative overflow-hidden group">

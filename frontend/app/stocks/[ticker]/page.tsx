@@ -7,11 +7,13 @@ import { createChartSync } from '@/lib/chartSync';
 import dynamic from 'next/dynamic';
 import Link from 'next/link';
 import strategyRegistry from '../../../strategies_local/registry.json';
+import { useToast } from '@/components/Toast';
 
 const StockChart = dynamic(() => import("@/components/StockChart"), { ssr: false });
 const IndicatorSubChart = dynamic(() => import("@/components/IndicatorSubChart"), { ssr: false });
 
 type SubPanelType = 'rsi' | 'macd' | 'stoch' | 'volume';
+type Timeframe = '1M' | '3M' | '6M' | '1Y' | 'ALL';
 
 type StrategyConfig = {
   ma20: boolean; ma50: boolean; ema12: boolean;
@@ -60,6 +62,12 @@ export default function TradingTerminalPage() {
   const router = useRouter();
   const ticker = params?.ticker as string;
 
+  useEffect(() => {
+    if (ticker) document.title = `${ticker} — IDXAnalyst`;
+  }, [ticker]);
+
+  const { toast } = useToast();
+
   const [stocks, setStocks] = useState<Stock[]>([]);
   const [ohlcv, setOhlcv] = useState<OHLCV[]>([]);
   const [indicators, setIndicators] = useState<Indicators | null>(null);
@@ -79,6 +87,12 @@ export default function TradingTerminalPage() {
   const [tradeQty, setTradeQty] = useState(1);
   const [isTrading, setIsTrading] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
+
+  // Watchlist state
+  const [watchlist, setWatchlist] = useState<Set<string>>(new Set());
+
+  // Sidebar sort state
+  const [sidebarSort, setSidebarSort] = useState<'default' | 'change_asc' | 'change_desc'>('default');
   
   // Discipline Fields
   const [selectedStrategy, setSelectedStrategy] = useState('manual-intuition');
@@ -95,10 +109,27 @@ export default function TradingTerminalPage() {
   const [showEMA26, setShowEMA26] = useState(false);
   const [showBB, setShowBB] = useState(false);
   const [activeSubPanel, setActiveSubPanel] = useState<SubPanelType | null>(null);
+  const [timeframe, setTimeframe] = useState<Timeframe>('1Y');
 
   useEffect(() => {
     api.getStocks().then(setStocks);
   }, []);
+
+  useEffect(() => {
+    const saved = localStorage.getItem('watchlist');
+    if (saved) { try { setWatchlist(new Set(JSON.parse(saved))); } catch {} }
+  }, []);
+
+  const toggleWatchlist = (e: React.MouseEvent, tickerSymbol: string) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setWatchlist(prev => {
+      const next = new Set(prev);
+      next.has(tickerSymbol) ? next.delete(tickerSymbol) : next.add(tickerSymbol);
+      localStorage.setItem('watchlist', JSON.stringify([...next]));
+      return next;
+    });
+  };
 
   const fetchData = useCallback(async () => {
     if (!ticker) return;
@@ -120,7 +151,7 @@ export default function TradingTerminalPage() {
         api.getMlPrediction(ticker).then(setMlResult).finally(() => setMlLoading(false));
       }
     } catch (err) {
-      console.error(err);
+      toast('Gagal memuat data saham. Periksa koneksi backend.', 'error');
     } finally {
       setLoading(false);
     }
@@ -165,22 +196,22 @@ export default function TradingTerminalPage() {
   const handleTrade = async () => {
     if (!ticker) return;
     if (orderSide === 'BUY' && !reasoning) {
-        alert("Harap masukkan alasan beli (Trading Journal)!");
+        toast("Harap masukkan alasan beli!", 'error');
         return;
     }
-    
+
     setIsTrading(true);
     try {
       const res = await api.executeTrade(ticker, orderSide, tradeQty, undefined, 'MANUAL', reasoning, selectedStrategy);
       if (res.status === 'ok') {
-        alert(`Order ${orderSide} Berhasil! Alasan: ${reasoning}`);
+        toast(`Order ${orderSide} berhasil — ${tradeQty} lot ${ticker}`, 'success');
         setReasoning('');
         await fetchData();
       } else {
-        alert(res.detail || "Gagal mengeksekusi order");
+        toast(res.detail || "Gagal mengeksekusi order", 'error');
       }
     } catch (err) {
-      alert("Gagal menghubungi server");
+      toast("Gagal menghubungi server", 'error');
     } finally {
       setIsTrading(false);
     }
@@ -188,40 +219,85 @@ export default function TradingTerminalPage() {
 
   const latestPrice = ohlcv[ohlcv.length - 1]?.close || 0;
   const totalValue = latestPrice * tradeQty * 100;
-  const filteredStocks = stocks.filter(s => s.ticker !== '^JKSE' && s.ticker.toLowerCase().includes(searchTerm.toLowerCase()));
+  const filteredStocks = stocks
+    .filter(s => s.ticker !== '^JKSE' && s.ticker.toLowerCase().includes(searchTerm.toLowerCase()))
+    .sort((a, b) => {
+      if (sidebarSort === 'change_desc') return (b.change_pct ?? -999) - (a.change_pct ?? -999);
+      if (sidebarSort === 'change_asc') return (a.change_pct ?? 999) - (b.change_pct ?? 999);
+      return 0;
+    });
   const currentStockInfo = stocks.find(s => s.ticker === ticker);
 
+  const displayedOhlcv = (() => {
+    if (timeframe === 'ALL' || ohlcv.length === 0) return ohlcv;
+    const months = { '1M': 1, '3M': 3, '6M': 6, '1Y': 12 }[timeframe];
+    const cutoff = new Date();
+    cutoff.setMonth(cutoff.getMonth() - months);
+    const cutoffStr = cutoff.toISOString().slice(0, 10);
+    return ohlcv.filter(d => d.date >= cutoffStr);
+  })();
+
   return (
-    <div className="flex h-screen bg-[#050505] text-white overflow-hidden pt-16">
+    <div className="flex flex-col md:flex-row h-screen bg-[#050505] text-white overflow-hidden pt-16">
       {/* Sidebar: Market Watch */}
-      <aside className="w-64 border-r border-white/10 flex flex-col bg-[#0a0a0a] shrink-0">
+      <aside className="hidden md:flex w-64 border-r border-white/10 flex-col bg-[#0a0a0a] shrink-0">
         <div className="p-4 border-b border-white/10">
           <div className="flex items-center gap-2 mb-4 text-left">
             <div className="w-8 h-8 bg-blue-600 rounded-lg flex items-center justify-center font-bold text-[10px] text-black shadow-lg shadow-blue-600/20">IX</div>
             <span className="text-xs font-black tracking-widest uppercase text-blue-500">Market Hub</span>
           </div>
-          <input 
-            type="text" 
-            placeholder="Quick search..." 
+          <input
+            type="text"
+            placeholder="Quick search..."
             className="w-full bg-white/5 border border-white/10 rounded-xl px-3 py-2 text-xs focus:outline-none focus:border-blue-500/50"
             onChange={(e) => setSearchTerm(e.target.value)}
           />
+          <div className="flex items-center gap-1 mt-2">
+            <span className="text-[8px] text-gray-700 font-mono uppercase tracking-widest">Sort:</span>
+            {[
+              { val: 'default' as const, label: 'DEF' },
+              { val: 'change_desc' as const, label: '▲%' },
+              { val: 'change_asc' as const, label: '▼%' },
+            ].map(opt => (
+              <button
+                key={opt.val}
+                onClick={() => setSidebarSort(opt.val)}
+                className={`text-[8px] font-black px-2 py-0.5 rounded transition-colors ${sidebarSort === opt.val ? 'bg-blue-600/20 text-blue-400' : 'text-gray-700 hover:text-gray-400'}`}
+              >
+                {opt.label}
+              </button>
+            ))}
+          </div>
         </div>
         <div className="flex-1 overflow-y-auto custom-scrollbar">
           {filteredStocks.map(stock => (
-            <button
+            <div
               key={stock.ticker}
               onClick={() => router.push(`/stocks/${stock.ticker}`)}
-              className={`w-full p-4 flex justify-between items-center hover:bg-white/5 transition-all border-b border-white/[0.02] ${ticker === stock.ticker ? 'bg-blue-600/10 border-r-4 border-r-blue-500' : ''}`}
+              role="button"
+              tabIndex={0}
+              className={`w-full p-4 flex justify-between items-center hover:bg-white/5 transition-all border-b border-white/[0.02] cursor-pointer ${ticker === stock.ticker ? 'bg-blue-600/10 border-r-4 border-r-blue-500' : ''}`}
             >
               <div className="text-left">
                 <p className={`text-sm font-black ${ticker === stock.ticker ? 'text-blue-400' : 'text-gray-300'}`}>{stock.ticker}</p>
                 <p className="text-[9px] text-gray-600 uppercase truncate w-24">{stock.name}</p>
               </div>
+              <button
+                onClick={(e) => toggleWatchlist(e, stock.ticker)}
+                className="text-[10px] px-1 transition-colors"
+                style={{ color: watchlist.has(stock.ticker) ? '#F59E0B' : 'rgba(255,255,255,0.1)' }}
+              >
+                ★
+              </button>
               <div className="text-right text-xs font-mono font-bold">
-                 Rp {stock.last_price?.toLocaleString('id-ID')}
+                Rp {stock.last_price?.toLocaleString('id-ID')}
+                {stock.change_pct != null && (
+                  <span className={`text-[8px] font-mono block ${stock.change_pct >= 0 ? 'text-green-400' : 'text-red-400'}`}>
+                    {stock.change_pct >= 0 ? '+' : ''}{stock.change_pct.toFixed(2)}%
+                  </span>
+                )}
               </div>
-            </button>
+            </div>
           ))}
         </div>
         <Link href="/dashboard" className="p-4 text-[10px] text-gray-500 hover:text-white text-center border-t border-white/10 uppercase tracking-widest font-black bg-black/40">
@@ -231,8 +307,22 @@ export default function TradingTerminalPage() {
 
       {/* Main Trading Area */}
       <main className="flex-1 flex flex-col overflow-hidden bg-gradient-to-br from-[#050505] to-black">
+        {/* Mobile stock selector — visible only on small screens */}
+        <div className="md:hidden px-4 pt-3 pb-2 border-b border-white/10 bg-[#0a0a0a]">
+          <select
+            value={ticker}
+            onChange={e => router.push(`/stocks/${e.target.value}`)}
+            className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-sm text-white focus:outline-none"
+          >
+            {filteredStocks.map(s => (
+              <option key={s.ticker} value={s.ticker} className="bg-[#0a0a0a]">
+                {s.ticker} — {s.name || ''}
+              </option>
+            ))}
+          </select>
+        </div>
         {/* Top Header */}
-        <header className="h-24 border-b border-white/10 bg-[#0a0a0a]/80 backdrop-blur-md flex items-center justify-between px-8 shrink-0">
+        <header className="h-auto md:h-24 border-b border-white/10 bg-[#0a0a0a]/80 backdrop-blur-md flex flex-col md:flex-row items-start md:items-center justify-between px-4 md:px-8 py-4 md:py-0 shrink-0 gap-4 md:gap-0">
           <div className="flex items-center gap-8">
             <div className="text-left">
               <h1 className="text-4xl font-black tracking-tighter leading-none mb-1">{ticker}</h1>
@@ -246,7 +336,7 @@ export default function TradingTerminalPage() {
           </div>
 
           {/* DISCIPLINED TRADE PANEL */}
-          <div className="flex items-center gap-4 bg-white/5 p-3 rounded-2xl border border-white/10 shadow-2xl">
+          <div className="flex flex-wrap items-center gap-4 bg-white/5 p-3 rounded-2xl border border-white/10 shadow-2xl w-full md:w-auto">
             <div className="flex flex-col gap-2">
                <div className="flex items-center gap-2">
                   <select 
@@ -287,8 +377,8 @@ export default function TradingTerminalPage() {
         </header>
 
         {/* Workspace */}
-        <div className="flex-1 overflow-y-auto p-8 custom-scrollbar">
-           <div className="flex justify-between items-center mb-6">
+        <div className="flex-1 overflow-y-auto p-4 md:p-8 custom-scrollbar">
+           <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 mb-6">
               <div className="flex gap-2 flex-wrap items-center">
                 {/* Price overlay toggles */}
                 {[
@@ -327,20 +417,34 @@ export default function TradingTerminalPage() {
                     {label}
                   </button>
                 ))}
+                <div className="w-px h-6 bg-white/10 mx-1" />
+                {(['1M', '3M', '6M', '1Y', 'ALL'] as Timeframe[]).map(tf => (
+                  <button
+                    key={tf}
+                    onClick={() => setTimeframe(tf)}
+                    className={`text-[9px] font-black tracking-widest uppercase px-4 py-2 rounded-xl border transition-all ${
+                      timeframe === tf
+                        ? 'border-white/30 bg-white/10 text-white'
+                        : 'border-white/5 text-gray-600 hover:text-gray-400'
+                    }`}
+                  >
+                    {tf}
+                  </button>
+                ))}
               </div>
               
-              <div className="flex gap-6 p-4 bg-white/[0.02] border border-white/5 rounded-2xl">
+              <div className="grid grid-cols-3 sm:grid-cols-3 gap-3 p-4 bg-white/[0.02] border border-white/5 rounded-2xl">
                  <div>
                     <p className="text-[8px] text-gray-500 font-bold uppercase tracking-widest">P/E Ratio</p>
-                    <p className="text-xs font-bold font-mono text-white">{(currentStockInfo as any)?.pe_ratio?.toFixed(2) || '-'}</p>
+                    <p className="text-xs font-bold font-mono text-white">{currentStockInfo?.pe_ratio?.toFixed(2) || '-'}</p>
                  </div>
                  <div>
                     <p className="text-[8px] text-gray-500 font-bold uppercase tracking-widest">P/B Ratio</p>
-                    <p className="text-xs font-bold font-mono text-white">{(currentStockInfo as any)?.pbv_ratio?.toFixed(2) || '-'}</p>
+                    <p className="text-xs font-bold font-mono text-white">{currentStockInfo?.pbv_ratio?.toFixed(2) || '-'}</p>
                  </div>
                  <div>
                     <p className="text-[8px] text-gray-500 font-bold uppercase tracking-widest">Div. Yield</p>
-                    <p className="text-xs font-bold font-mono text-green-400">{(currentStockInfo as any)?.dividend_yield ? `${((currentStockInfo as any).dividend_yield * 100).toFixed(2)}%` : '-'}</p>
+                    <p className="text-xs font-bold font-mono text-green-400">{currentStockInfo?.dividend_yield ? `${(currentStockInfo.dividend_yield * 100).toFixed(2)}%` : '-'}</p>
                  </div>
               </div>
            </div>
@@ -351,7 +455,7 @@ export default function TradingTerminalPage() {
               ) : (
                 <>
                   <StockChart
-                    data={ohlcv}
+                    data={displayedOhlcv}
                     indicators={indicators ?? {}}
                     showMA20={showMA20}
                     showMA50={showMA50}
@@ -362,7 +466,7 @@ export default function TradingTerminalPage() {
                     sync={chartSync.current}
                   />
                   {activeSubPanel && ohlcv.length > 0 && (
-                    <IndicatorSubChart data={ohlcv} type={activeSubPanel} sync={chartSync.current} />
+                    <IndicatorSubChart data={displayedOhlcv} type={activeSubPanel} sync={chartSync.current} />
                   )}
                 </>
               )}

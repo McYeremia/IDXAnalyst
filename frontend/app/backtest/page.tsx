@@ -23,6 +23,7 @@ const STRATEGY_COLORS: Record<string, string> = {
 };
 
 export default function BacktestPage() {
+  useEffect(() => { document.title = 'Backtest — IDXAnalyst'; }, []);
   const [results, setResults] = useState<Record<string, BacktestResult>>({});
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [loading, setLoading] = useState<string | null>(null);
@@ -63,9 +64,7 @@ export default function BacktestPage() {
     setIsRunningAll(true);
     setResults({});
     setShowCompare(false);
-    for (const strat of strategyRegistry) {
-      await runSingleTest(strat.id);
-    }
+    await Promise.allSettled(strategyRegistry.map(strat => runSingleTest(strat.id)));
     setIsRunningAll(false);
     setShowCompare(true);
   };

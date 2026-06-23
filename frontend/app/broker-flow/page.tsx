@@ -19,6 +19,7 @@ function fmtLots(n: number) {
 type SortKey = 'total_value' | 'volume' | 'frequency';
 
 export default function BrokerFlowPage() {
+  useEffect(() => { document.title = 'Broker Flow — IDXAnalyst'; }, []);
   const [data, setData]             = useState<BrokerFlowResponse | null>(null);
   const [dates, setDates]           = useState<string[]>([]);
   const [selectedDate, setSelectedDate] = useState<string>('');

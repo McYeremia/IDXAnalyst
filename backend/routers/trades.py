@@ -319,6 +319,75 @@ def create_trade(req: TradeRequest, db: Session = Depends(get_db)):
         latest = db.query(models.OHLCVDaily).filter(models.OHLCVDaily.stock_id == stock.id).order_by(desc(models.OHLCVDaily.date)).first()
         price = latest.close if latest else 0
 
+    # Determine agent from trade_type
+    trade_type_upper = req.trade_type.upper()
+    if "CLAUDE" in trade_type_upper:
+        agent_key = "CLAUDE"
+    elif "GEMINI" in trade_type_upper:
+        agent_key = "GEMINI"
+    else:
+        agent_key = "USER"
+
+    if req.action.upper() == "SELL":
+        # Replay trades to check holdings
+        all_prev = db.query(models.TradeLog).order_by(models.TradeLog.date).all()
+        holdings: dict = {}
+        for t in all_prev:
+            t_type = t.trade_type.upper()
+            if "CLAUDE" in t_type:
+                t_agent = "CLAUDE"
+            elif "GEMINI" in t_type:
+                t_agent = "GEMINI"
+            else:
+                t_agent = "USER"
+            if t_agent != agent_key:
+                continue
+            tk = t.stock.ticker
+            if tk not in holdings:
+                holdings[tk] = {"shares": 0, "avg_price": 0.0}
+            qty = t.quantity * 100
+            if t.action == "BUY":
+                total = holdings[tk]["shares"] * holdings[tk]["avg_price"] + qty * t.price
+                holdings[tk]["shares"] += qty
+                holdings[tk]["avg_price"] = total / holdings[tk]["shares"] if holdings[tk]["shares"] > 0 else 0.0
+            else:
+                holdings[tk]["shares"] -= qty
+        held = holdings.get(req.ticker.upper(), {}).get("shares", 0)
+        needed = req.quantity * 100
+        if held < needed:
+            raise HTTPException(status_code=400, detail=f"Insufficient position: hold {held // 100} lots, need {req.quantity} lots.")
+
+    elif req.action.upper() == "BUY":
+        all_prev = db.query(models.TradeLog).order_by(models.TradeLog.date).all()
+        holdings_buy: dict = {}
+        for t in all_prev:
+            t_type = t.trade_type.upper()
+            if "CLAUDE" in t_type:
+                t_agent = "CLAUDE"
+            elif "GEMINI" in t_type:
+                t_agent = "GEMINI"
+            else:
+                t_agent = "USER"
+            if t_agent != agent_key:
+                continue
+            tk = t.stock.ticker
+            if tk not in holdings_buy:
+                holdings_buy[tk] = {"shares": 0, "avg_price": 0.0, "realized": 0.0}
+            qty = t.quantity * 100
+            if t.action == "BUY":
+                total = holdings_buy[tk]["shares"] * holdings_buy[tk]["avg_price"] + qty * t.price
+                holdings_buy[tk]["shares"] += qty
+                holdings_buy[tk]["avg_price"] = total / holdings_buy[tk]["shares"] if holdings_buy[tk]["shares"] > 0 else 0.0
+            else:
+                holdings_buy[tk]["realized"] += (t.price - holdings_buy[tk]["avg_price"]) * qty
+                holdings_buy[tk]["shares"] -= qty
+        invested = sum(pos["shares"] * pos["avg_price"] for pos in holdings_buy.values() if pos["shares"] > 0)
+        realized = sum(pos["realized"] for pos in holdings_buy.values())
+        available_cash = INITIAL_MODAL - invested + realized
+        trade_cost = price * req.quantity * 100
+        if trade_cost > available_cash:
+            raise HTTPException(status_code=400, detail=f"Insufficient funds: need Rp {trade_cost:,.0f}, available Rp {available_cash:,.0f}.")
+
     new_trade = models.TradeLog(
         stock_id=stock.id, action=req.action.upper(), date=date.today(),
         price=price, quantity=req.quantity, trade_type=req.trade_type.upper(),

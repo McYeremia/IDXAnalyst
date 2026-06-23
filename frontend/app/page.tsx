@@ -82,6 +82,7 @@ function fmtAbsChange(n: number | null): string {
 
 // ── Component ──────────────────────────────────────────────
 export default function LandingPage() {
+  useEffect(() => { document.title = 'IDXAnalyst — Market Terminal'; }, []);
   const [activeTick, setActiveTick] = useState(0);
   const [tickers, setTickers]       = useState<LiveTicker[]>(STATIC_TICKERS);
   const [ihsg, setIhsg]             = useState<IhsgData>(STATIC_IHSG);
@@ -284,9 +285,10 @@ export default function LandingPage() {
                   {/* Ticker rows */}
                   <div>
                     {tickers.map((t, i) => (
-                      <div
+                      <Link
                         key={t.symbol}
-                        className={`flex items-center justify-between px-3 py-2.5 border-b border-white/[0.04] transition-colors duration-200 ${
+                        href={`/stocks/${t.symbol}`}
+                        className={`block flex items-center justify-between px-3 py-2.5 border-b border-white/[0.04] transition-colors duration-200 cursor-pointer ${
                           i === activeTick % tickers.length ? 'bg-[#3B82F6]/8' : 'hover:bg-white/[0.03]'
                         }`}
                       >
@@ -306,7 +308,7 @@ export default function LandingPage() {
                             {t.change}
                           </span>
                         </div>
-                      </div>
+                      </Link>
                     ))}
                   </div>
 

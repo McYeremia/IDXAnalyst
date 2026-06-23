@@ -21,6 +21,7 @@ function fmtRatio(n: number | null) {
 }
 
 export default function ScreenerPage() {
+  useEffect(() => { document.title = 'Screener — IDXAnalyst'; }, []);
   // ── Tab ─────────────────────────────────────────────────
   const [activeTab, setActiveTab] = useState<'teknikal' | 'fundamental'>('teknikal');
 
@@ -28,6 +29,9 @@ export default function ScreenerPage() {
   const [selectedStratId, setSelectedStratId] = useState<string | null>(null);
   const [matches, setMatches]                 = useState<any[]>([]);
   const [loading, setLoading]                 = useState(false);
+  const [scanTime, setScanTime]               = useState<string | null>(null);
+  const [sortCol, setSortCol]                 = useState<string | null>(null);
+  const [sortDir, setSortDir]                 = useState<'asc' | 'desc'>('desc');
 
   // ── Fundamental states ───────────────────────────────────
   const [fundStocks, setFundStocks]     = useState<Stock[]>([]);
@@ -52,15 +56,33 @@ export default function ScreenerPage() {
 
   // ── Teknikal logic ───────────────────────────────────────
   const runScreener = async (id: string) => {
+    setScanTime(null);
+    setSortCol(null);
     setLoading(true);
     try {
       const res = await api.screenStocks(id);
       setMatches(res.matches || []);
+      setScanTime(new Date().toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit', second: '2-digit' }));
     } catch {
     } finally {
       setLoading(false);
     }
   };
+
+  function toggleSort(col: string) {
+    if (sortCol === col) setSortDir(d => d === 'desc' ? 'asc' : 'desc');
+    else { setSortCol(col); setSortDir('desc'); }
+  }
+
+  const sortedMatches = sortCol
+    ? [...matches].sort((a, b) => {
+        const av = a[sortCol] as number | null;
+        const bv = b[sortCol] as number | null;
+        if (av == null) return 1;
+        if (bv == null) return -1;
+        return sortDir === 'desc' ? bv - av : av - bv;
+      })
+    : matches;
 
   useEffect(() => {
     if (selectedStratId) runScreener(selectedStratId);
@@ -106,7 +128,7 @@ export default function ScreenerPage() {
   // ── Shared tab bar ───────────────────────────────────────
   function TabBar() {
     return (
-      <div className="flex items-center gap-1 mb-10 p-1 bg-white/5 rounded-2xl border border-white/10 w-fit">
+      <div className="flex flex-wrap items-center gap-1 mb-10 p-1 bg-white/5 rounded-2xl border border-white/10 w-fit">
         {(['teknikal', 'fundamental'] as const).map(tab => (
           <button
             key={tab}
@@ -387,14 +409,15 @@ export default function ScreenerPage() {
               <h1 className="text-3xl font-black tracking-tighter mb-1 text-blue-500">{activeStrat?.name}</h1>
               <p className="text-gray-500 font-mono text-[10px] uppercase tracking-widest">
                 Real-time Scanner: {matches.length} Assets Found
+                {scanTime && <span className="ml-3 text-gray-700">— Scan {scanTime}</span>}
               </p>
             </div>
           </div>
-          <div className="p-1 bg-white/5 rounded-2xl border border-white/10 hidden md:flex">
+          <div className="p-1 bg-white/5 rounded-2xl border border-white/10 flex w-full sm:w-auto">
             <select
               value={selectedStratId}
               onChange={e => setSelectedStratId(e.target.value)}
-              className="bg-transparent text-white px-6 py-2 text-[10px] font-black tracking-widest uppercase focus:outline-none cursor-pointer"
+              className="bg-transparent text-white px-6 py-2 text-[10px] font-black tracking-widest uppercase focus:outline-none cursor-pointer w-full"
             >
               {strategyRegistry.map(s => (
                 <option key={s.id} value={s.id} className="bg-black">{s.name}</option>
@@ -440,20 +463,27 @@ export default function ScreenerPage() {
                     <tr className="border-b border-white/5 text-[9px] font-black text-gray-600 uppercase tracking-[0.4em]">
                       <th className="px-10 py-8 text-left">Instrument</th>
                       {activeStrat?.display_columns.map(col => (
-                        <th key={col} className="px-10 py-8 text-left">{col.replace('_', ' ')}</th>
+                        <th
+                          key={col}
+                          className="px-10 py-8 text-left cursor-pointer hover:text-gray-400 select-none"
+                          onClick={() => toggleSort(col)}
+                        >
+                          {col.replace('_', ' ')}
+                          {sortCol === col ? (sortDir === 'desc' ? ' ↓' : ' ↑') : <span className="text-gray-700 ml-1">↕</span>}
+                        </th>
                       ))}
                       <th className="px-10 py-8 text-right">Terminal</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-white/5 font-mono">
-                    {matches.length === 0 ? (
+                    {sortedMatches.length === 0 ? (
                       <tr>
                         <td colSpan={10} className="px-10 py-32 text-center text-gray-700 italic text-sm">
                           No assets currently meet this criteria. Market is neutral.
                         </td>
                       </tr>
                     ) : (
-                      matches.map(m => (
+                      sortedMatches.map(m => (
                         <tr key={m.ticker} className="group hover:bg-white/[0.02] transition-all">
                           <td className="px-10 py-6 whitespace-nowrap">
                             <span className="text-base font-black text-white group-hover:text-blue-400 transition-colors block">
